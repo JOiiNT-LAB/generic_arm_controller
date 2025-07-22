@@ -19,9 +19,12 @@ setup(
         (os.path.join('share', package_name, 'config'), glob.glob('config/*')),
         # Include all files from the 'calibration_results' directory
         (os.path.join('share', package_name, 'calibration_results'), glob.glob('calibration_results/*')),
+
     ],
-    install_requires=['setuptools'],
-    zip_safe=True,
+    install_requires=['setuptools', 'rclpy', 'geometry_msgs', 'std_srvs', 
+                      'control_msgs', 'trajectory_msgs', 'pinocchio', 'numpy', 
+                      'sensor_msgs', 'pyyaml'], # Ho aggiunto qui le dipendenze comuni che ti serviranno
+                                                 # Assicurati che siano tutte elencate    zip_safe=True,
     maintainer='Your Name',
     maintainer_email='your_email@example.com',
     description='ROS2 package for controlling and interacting with the UR10e robot.',
@@ -35,6 +38,7 @@ setup(
             f'object_grapping_node = {package_name}.object_grapping_node:main',
             f'pose_publisher_node = {package_name}.PosePublisher_node:main',
             f'ur10e_ik_trajectory_node = {package_name}.ur10e_ik_trajectory_node:main',
+            f'task_orchestrator = {package_name}.task_orchestrator:main', 
         ],
     },
 )

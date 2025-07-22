@@ -18,7 +18,7 @@ class MarkerPoseTransformerNode(Node):
         # --- Caricamento Calibrazione Hand-Eye (T_EE_Camera) ---
         self.T_EE_Camera_matrix = None
         try:
-            package_share_directory = get_package_share_directory('my_ur10e_fk')
+            package_share_directory = get_package_share_directory('ur10e_ros2')
             self.calibration_file_path = os.path.join(
                 package_share_directory, 'calibration_results', 'hand_eye_transform.yaml'
             )

@@ -268,8 +268,14 @@ class UR10eIKTrajectoryNode(Node):
 
             # Get current end-effector pose and calculate error
             current_se3 = self.data.oMf[self.end_effector_frame_id]
+            #Questa è la mappa logaritmica per il gruppo SE3. Trasforma un elemento del gruppo SE3 (una trasformazione rigida) 
+            # in un elemento dello spazio tangente corrispondente, che è se3 (lo spazio delle twist o viti). 
+            # Un elemento di se3 è un vettore a 6 dimensioni ([vx, vy, vz, wx, wy, wz]), dove (vx, vy, vz) sono 
+            # le componenti lineari dell'errore (spostamento) e (wx, wy, wz) sono le componenti angolari dell'errore (rotazione).
+            #  Questo vettore error rappresenta la "velocità" che l'end-effector dovrebbe avere per raggiungere i
+            # il target in un "passo" infinitesimale
             error = pin.log6(current_se3.inverse() * target_se3).vector # Error in tangent space
-            error_norm = np.linalg.norm(error)
+            error_norm = np.linalg.norm(error)#Questo valore viene confrontato con self.tolerance per determinare la convergenz
 
             # Log progress
             if i % 100 == 0 or error_norm < self.tolerance:
@@ -282,11 +288,16 @@ class UR10eIKTrajectoryNode(Node):
                 break
 
             # Get Jacobian in LOCAL frame and select only relevant columns (for movable joints)
+            # Estrae la matrice Jacobiana specifica per il frame dell'end-effector (tool0). Questa Jacobiana è una matrice 6 timesN_dof,
+            #  dove N_dof sono i gradi di libertà del robot (6 per UR10e). Le 6 righe corrispondono alle 3 velocità lineari (X, Y, Z) 
+            # e 3 velocità angolari (roll, pitch, yaw) dell'end-effector, mentre le colonne corrispondono ai giunti del robot. 
+            # Il pin.ReferenceFrame.LOCAL indica che la Jacobiana è espressa nel frame dell'end-effector.
             J = pin.getFrameJacobian(self.model, self.data, self.end_effector_frame_id, pin.ReferenceFrame.LOCAL)
             J = J[:, :self.model.nq] # Ensure Jacobian matches the number of joint DOFs
 
             try:
-                # Compute damped pseudo-inverse using SVD
+                #metodo dei Minimi Quadrati Smorzati.
+                # Compute damped pseudo-inverse using SVD  
                 U, S, Vt = np.linalg.svd(J, full_matrices=False)
                 S_damped = S / (S**2 + self.damping)
                 J_pinv = Vt.T @ np.diag(S_damped) @ U.T
