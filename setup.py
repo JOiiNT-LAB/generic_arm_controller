@@ -38,7 +38,7 @@ setup(
             f'object_grapping_node = {package_name}.object_grapping_node:main',
             f'pose_publisher_node = {package_name}.PosePublisher_node:main',
             f'ur10e_ik_trajectory_node = {package_name}.ur10e_ik_trajectory_node:main',
-            f'task_orchestrator = {package_name}.task_orchestrator:main', 
-        ],
+            f'task_saving_node = {package_name}.task_saving_node:main',
+            f'task_executor_node = {package_name}.task_executor_node:main',],
     },
 )

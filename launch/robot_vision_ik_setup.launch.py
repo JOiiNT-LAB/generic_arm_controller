@@ -82,8 +82,8 @@ def generate_launch_description():
         # Ad esempio, il tuo nodo task_orchestrator
         Node(
             package='ur10e_ros2',
-            executable='PoseSaverNode',
-            name='PoseSaverNode', # Usa un nome descrittivo per il nodo
+            executable='task_saving_node',
+            name='task_saving_node', # Usa un nome descrittivo per il nodo
             output='screen',
         ),
     ])

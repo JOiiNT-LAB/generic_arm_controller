@@ -15,7 +15,7 @@ from sensor_msgs.msg import JointState
 from rclpy.action import ActionClient
 from control_msgs.action import FollowJointTrajectory
 from trajectory_msgs.msg import JointTrajectoryPoint
-
+from std_msgs.msg import Bool
 class UR10eIKTrajectoryNode(Node):
     """
     ROS2 Node for performing Inverse Kinematics (IK) for a UR10e robot
@@ -183,6 +183,10 @@ class UR10eIKTrajectoryNode(Node):
         self.get_logger().info('Waiting for /scaled_joint_trajectory_controller/follow_joint_trajectory action server...')
         self._action_client.wait_for_server()
         self.get_logger().info('Action server found.')
+
+        # --- Publisher per il risultato dell'azione IK (NUOVO) ---
+        self.ik_result_publisher = self.create_publisher(Bool, '/ik_action_result', 1)
+        self.get_logger().info('Publisher created for /ik_action_result topic.')
 
     def joint_callback(self, msg: JointState):
         """
@@ -375,13 +379,22 @@ class UR10eIKTrajectoryNode(Node):
         self._get_result_future.add_done_callback(self._get_result_callback)
 
     def _get_result_callback(self, future):
-        """Callback for when the action server returns the result."""
-        result = future.result().result
-        status = future.result().status
-        if status == rclpy.action.client.GoalStatus.STATUS_SUCCEEDED:
-            self.get_logger().info('Trajectory execution succeeded!')
-        else:
-            self.get_logger().warn(f'Trajectory execution failed with status: {status} (Result: {result.error_code})')
+            """Callback for when the action server returns the result."""
+            result = future.result().result
+            status = future.result().status
+
+            # Crea un messaggio Bool per comunicare il risultato dell'azione IK
+            msg = Bool() # <-- NUOVO: Crea un'istanza del messaggio Bool
+
+            if status == rclpy.action.client.GoalStatus.STATUS_SUCCEEDED:
+                self.get_logger().info('Trajectory execution succeeded!')
+                msg.data = True # <-- NUOVO: Imposta a True per successo
+            else:
+                self.get_logger().warn(f'Trajectory execution failed with status: {status} (Result: {result.error_code})')
+                msg.data = False # <-- NUOVO: Imposta a False per fallimento
+
+            # Pubblica il risultato dell'azione IK sul topic dedicato
+            self.ik_result_publisher.publish(msg) # <-- NUOVO: Pubblica il messaggio
 
     def _feedback_callback(self, feedback_msg):
         """Callback for receiving feedback during trajectory execution."""
