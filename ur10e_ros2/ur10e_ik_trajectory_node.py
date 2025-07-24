@@ -16,6 +16,9 @@ from rclpy.action import ActionClient
 from control_msgs.action import FollowJointTrajectory
 from trajectory_msgs.msg import JointTrajectoryPoint
 from std_msgs.msg import Bool
+from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy, DurabilityPolicy
+import time # Aggiungi questa importazione all'inizio del file
+
 class UR10eIKTrajectoryNode(Node):
     """
     ROS2 Node for performing Inverse Kinematics (IK) for a UR10e robot
@@ -184,9 +187,21 @@ class UR10eIKTrajectoryNode(Node):
         self._action_client.wait_for_server()
         self.get_logger().info('Action server found.')
 
-        # --- Publisher per il risultato dell'azione IK (NUOVO) ---
-        self.ik_result_publisher = self.create_publisher(Bool, '/ik_action_result', 1)
-        self.get_logger().info('Publisher created for /ik_action_result topic.')
+
+        # --- Publisher per il risultato dell'azione IK ---
+        qos_profile_ik_publisher = QoSProfile(
+            reliability=ReliabilityPolicy.RELIABLE,    # Deve essere RELIABLE
+            history=HistoryPolicy.KEEP_LAST,           # Deve essere KEEP_LAST
+            depth=1,                                   # Deve essere 1
+            durability=DurabilityPolicy.VOLATILE       # Deve essere VOLATILE
+        )
+        self.ik_result_publisher = self.create_publisher(Bool, '/ik_action_result', qos_profile_ik_publisher)
+        self.get_logger().info('Publisher created for /ik_action_result topic with RELIABLE/VOLATILE/KEEP_LAST(1) QoS.')
+        self.get_logger().info(f'IK Trajectory Node Name: {self.get_name()}, Namespace: {self.get_namespace()}')
+        # Aggiungi un timer che pubblichi regolarmente per test
+
+
+
 
     def joint_callback(self, msg: JointState):
         """
@@ -378,13 +393,14 @@ class UR10eIKTrajectoryNode(Node):
         self._get_result_future = goal_handle.get_result_async()
         self._get_result_future.add_done_callback(self._get_result_callback)
 
+
     def _get_result_callback(self, future):
             """Callback for when the action server returns the result."""
             result = future.result().result
             status = future.result().status
 
             # Crea un messaggio Bool per comunicare il risultato dell'azione IK
-            msg = Bool() # <-- NUOVO: Crea un'istanza del messaggio Bool
+            msg = Bool()
 
             if status == rclpy.action.client.GoalStatus.STATUS_SUCCEEDED:
                 self.get_logger().info('Trajectory execution succeeded!')
@@ -395,6 +411,7 @@ class UR10eIKTrajectoryNode(Node):
 
             # Pubblica il risultato dell'azione IK sul topic dedicato
             self.ik_result_publisher.publish(msg) # <-- NUOVO: Pubblica il messaggio
+            self.get_logger().info(f'Published IK action result: {msg.data}')
 
     def _feedback_callback(self, feedback_msg):
         """Callback for receiving feedback during trajectory execution."""
