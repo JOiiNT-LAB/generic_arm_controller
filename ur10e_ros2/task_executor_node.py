@@ -1,7 +1,9 @@
 import rclpy
 from rclpy.node import Node
 from geometry_msgs.msg import PoseStamped, Pose
-from std_srvs.srv import Trigger, TriggerResponse # Importa TriggerResponse
+from std_srvs.srv import Trigger
+from std_srvs.srv._trigger import Trigger_Response # <-- CORREZIONE QUI: Usa 'Trigger_Response' con underscore, non 'TriggerResponse'
+
 import json
 import os
 import time # Mantenuto per time.sleep in caso di timeout (ma ora usato solo per il timeout IK)
@@ -81,7 +83,7 @@ class TaskExecutorNode(Node):
             self.saved_poses = []
             return False
 
-    def execute_saved_tasks_callback(self, request: Trigger.Request, response: Trigger.Response):
+    def execute_saved_tasks_callback(self, request: Trigger.Request, response: Trigger_Response): # <-- Modifica qui il type hint
         """Callback del servizio per avviare l'esecuzione delle pose."""
         self.get_logger().info("Richiesta di esecuzione task ricevuta.")
 
