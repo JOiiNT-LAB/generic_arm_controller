@@ -143,6 +143,8 @@ class MarkerPoseTransformerNode(Node):
         ik_target_pose_msg.pose.orientation = self.latest_fk_pose.pose.orientation # Usa l'orientamento attuale
 
         self.ik_target_pose_pub.publish(ik_target_pose_msg)
+
+        
         self.get_logger().info(f"DEBUG: Published IK target pose for EE in 'base_link' frame: "
                                f"x={ik_target_pose_msg.pose.position.x:.3f}, y={ik_target_pose_msg.pose.position.y:.3f}, z={ik_target_pose_msg.pose.position.z:.3f}")
        
