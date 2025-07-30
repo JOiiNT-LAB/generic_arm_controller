@@ -18,12 +18,15 @@ from tf2_ros import TransformException
 from tf2_ros.buffer import Buffer
 from tf2_ros.transform_listener import TransformListener
 import tf2_geometry_msgs # <-- QUESTA RIGA È NECESSARIA!
-
+#  implementa un nodo ROS 2 che gestisce l'esecuzione sequenziale di pose robot salvate da un file JSON.
+# Questo nodo è fondamentale per automatizzare compiti che richiedono 
+# il raggiungimento di diverse posizioni nello spazio cartesiano, 
+# come operazioni di pick-and-place, ispezioni o percorsi predefiniti.
 class TaskExecutorNode(Node):
     def __init__(self):
         super().__init__('task_executor_node')
         self.get_logger().info('Task Executor Node Started. (Executes saved poses, performs TF transformations if needed)')
-        
+        # callback groups as a tool for controlling the execution of different callbacks.
         self.reentrant_callback_group = ReentrantCallbackGroup()
         
         # --- Inizializzazione di TF2 (OBBLIGATORIO ORA) ---
@@ -124,7 +127,7 @@ class TaskExecutorNode(Node):
 
         # Definizione del frame target per la trasformazione
         # Il tuo nodo IK si aspetta sempre le pose in 'base_link'
-        target_frame_for_ik = 'base_link' 
+        target_frame_for_ik = 'base_link' #-----------_> da rendere parametrico
         # NOTA: Qui potresti volere 'odom' o un altro frame fisso,
         # a seconda di dove il tuo nodo IK si aspetta i comandi.
         # Ho mantenuto 'base_link' per coerenza con il tuo esempio IK.
