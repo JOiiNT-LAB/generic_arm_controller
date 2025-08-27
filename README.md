@@ -16,6 +16,10 @@ ros2 launch ur_robot_driver ur_control.launch.py     ur_type:=ur10e     robot_ip
 
 
  
+
+
+
+
  
  commando per vedere posizione
  ros2 run my_ur10e_fk fk_node 
@@ -125,4 +129,40 @@ per eseguire tutti i task
 
 
 
+
+
+
+
+
+
+
+## lancare in modo virtuale ur10e con rviz
+usiamo un robot_ip inventato 
+
+ros2 launch ur_robot_driver ur_control.launch.py \
+    ur_type:=ur10e \
+    robot_ip:=127.0.0.1 \
+    use_fake_hardware:=true \
+    launch_rviz:=true \
+    initial_joint_controller:=forward_position_controller
+
+
+controllo in poisizione diretto con il nodo ik_node_position_controllers.py
+prende in ingrsso una cartesian pose e restituisce una posa diretta serve per il real time o teleoperazione
+quando i percorsi non sono prestabiliti
+per provarlo (IN SIMULAZIONE!!) usare il commaando
+ros2 topic pub /target_cartesian_pose geometry_msgs/PoseStamped "header:
+  frame_id: 'base_link'
+pose:
+  position:
+    x: 0.4
+    y: 0.1
+    z: 0.3
+  orientation:
+    x: 0.0
+    y: 0.0
+    z: 0.0
+    w: 1.0"
+
+Implementeazine di un nodo che generi le traiettorie partendo da questo ik_node
 

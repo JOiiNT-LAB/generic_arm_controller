@@ -181,6 +181,7 @@ class UR10eIKNode(Node):
         self.last_q = self.q.copy() # Store the last known good joint configuration
 
     def joint_callback(self, msg: JointState):
+
         """
         Callback for /joint_states topic.
         Initializes the robot's current joint configuration from actual sensor data.
@@ -208,9 +209,10 @@ class UR10eIKNode(Node):
 
     def pose_callback(self, msg: PoseStamped):
         """
-        Callback for /target_cartesian_pose topic.
-        Performs inverse kinematics to find joint angles for the target pose.
+        Callback per il topic /target_cartesian_pose.
+        Esegue la cinematica inversa per trovare gli angoli dei giunti per la posa target.
         """
+
         if not self.initial_q_received:
             self.get_logger().warn("Waiting for initial joint states before processing poses.")
             return
@@ -221,14 +223,14 @@ class UR10eIKNode(Node):
             f"Orientation({target_pose.orientation.x:.3f}, {target_pose.orientation.y:.3f}, {target_pose.orientation.z:.3f}, {target_pose.orientation.w:.3f})"
         )
 
-        # Normalize quaternion to prevent numerical instability
+        # Normalizza il quaternione per prevenire instabilità numeriche
         q_norm = math.sqrt(
             target_pose.orientation.w**2 +
             target_pose.orientation.x**2 +
             target_pose.orientation.y**2 +
             target_pose.orientation.z**2
         )
-        # Create Pinocchio SE3 object from ROS PoseStamped data
+        # Crea l'oggetto Pinocchio SE3 dai dati di ROS PoseStamped
         rotation = pin.Quaternion(
             target_pose.orientation.w / q_norm,
             target_pose.orientation.x / q_norm,
@@ -243,37 +245,37 @@ class UR10eIKNode(Node):
         ])
         target_se3 = pin.SE3(rotation, translation)
 
-        # Start IK from the last known good configuration
+        # Avvia l'IK dall'ultima configurazione valida conosciuta
         q_current_guess = self.last_q.copy()
         found_solution = False
 
         self.get_logger().info("Starting IK iterations...")
         for i in range(self.max_iter):
-            # Compute forward kinematics and Jacobians
+            # Calcola la cinematica in avanti e le Jacobiane
             pin.computeJointJacobians(self.model, self.data, q_current_guess)
             pin.updateFramePlacements(self.model, self.data)
 
-            # Get current end-effector pose and calculate error
+            # Ottieni la posa attuale dell'end-effector e calcola l'errore
             current_se3 = self.data.oMf[self.end_effector_frame_id]
-            error = pin.log6(current_se3.inverse() * target_se3).vector # Error in tangent space
+            error = pin.log6(current_se3.inverse() * target_se3).vector # Errore nello spazio tangente
             error_norm = np.linalg.norm(error)
 
-            # Log progress
+            # Log del progresso
             if i % 100 == 0 or error_norm < self.tolerance:
                 self.get_logger().info(f"Iter: {i}, Error norm: {error_norm:.6f}")
 
-            # Check for convergence
+            # Controlla la convergenza
             if error_norm < self.tolerance:
                 found_solution = True
                 self.get_logger().info(f"Convergence achieved at iteration {i} with error {error_norm:.6f}")
                 break
 
-            # Get Jacobian in LOCAL frame and select only relevant columns (for movable joints)
+            # Ottieni la Jacobiana nel frame LOCAL e seleziona solo le colonne rilevanti
             J = pin.getFrameJacobian(self.model, self.data, self.end_effector_frame_id, pin.ReferenceFrame.LOCAL)
-            J = J[:, :self.model.nq] # Ensure Jacobian matches the number of joint DOFs
+            J = J[:, :self.model.nq] # Assicurati che la Jacobiana corrisponda al numero di DOF dei giunti
 
             try:
-                # Compute damped pseudo-inverse using SVD
+                # Calcola la pseudo-inversa smorzata usando SVD
                 U, S, Vt = np.linalg.svd(J, full_matrices=False)
                 S_damped = S / (S**2 + self.damping)
                 J_pinv = Vt.T @ np.diag(S_damped) @ U.T
@@ -281,21 +283,21 @@ class UR10eIKNode(Node):
                 self.get_logger().warn(f"SVD failed at iteration {i}: {e}")
                 continue
 
-            # Calculate joint velocity update
+            # Calcola l'aggiornamento della velocità del giunto
             delta_q = J_pinv @ error
-            # Integrate joint velocities to update joint positions
+            # Integra le velocità dei giunti per aggiornare le posizioni
             q_current_guess = pin.integrate(self.model, q_current_guess, self.dt * delta_q)
-            # Clip joint positions to stay within joint limits
+            # Limita le posizioni dei giunti per rimanere all'interno dei limiti
             q_current_guess = np.clip(q_current_guess, self.model.lowerPositionLimit, self.model.upperPositionLimit)
 
         if found_solution:
             self.get_logger().info("IK solution found. Publishing joint positions.")
-            self.last_q = q_current_guess # Update last_q with the new solution
+            self.last_q = q_current_guess # Aggiorna last_q con la nuova soluzione
 
             joint_positions_msg = Float64MultiArray()
             joint_positions_to_publish = []
             
-            # Populate the message with joint positions in the correct order
+            # Popola il messaggio con le posizioni dei giunti nell'ordine corretto
             for joint_name in self.joint_names:
                 joint_id = self.model.getJointId(joint_name)
                 q_idx = self.model.joints[joint_id].idx_q
@@ -303,13 +305,21 @@ class UR10eIKNode(Node):
                     joint_positions_to_publish.append(q_current_guess[q_idx])
                 else:
                     self.get_logger().error(f"Joint {joint_name} has invalid q index. Cannot publish.")
-                    return # Exit if a critical joint index is missing
+                    return # Esci se un indice di giunto critico manca
 
+            # --- PARTE CORRETTA ---
+            # Stampa l'ordine dei giunti e i valori che stai per pubblicare
+            self.get_logger().info(f"Joint order: {self.joint_names}")
+            self.get_logger().info(f"IK result: {joint_positions_to_publish}")
+            
+            # Assegna la lista di valori all'attributo 'data' del messaggio
             joint_positions_msg.data = joint_positions_to_publish
+            
+            # Pubblica il messaggio
             self.joint_position_publisher.publish(joint_positions_msg)
+            # --- FINE PARTE CORRETTA ---
         else:
             self.get_logger().warn(f"IK failed after {self.max_iter} iterations. Final error: {error_norm:.4f}")
-
 def main(args=None):
     rclpy.init(args=args)
     ur10e_ik_node = UR10eIKNode()

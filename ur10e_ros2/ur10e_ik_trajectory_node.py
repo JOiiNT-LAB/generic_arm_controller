@@ -284,7 +284,7 @@ class UR10eIKTrajectoryNode(Node):
             # Compute forward kinematics and Jacobians
             pin.computeJointJacobians(self.model, self.data, q_current_guess)
             pin.updateFramePlacements(self.model, self.data)
-
+            
             # Get current end-effector pose and calculate error
             current_se3 = self.data.oMf[self.end_effector_frame_id]
             #Questa è la mappa logaritmica per il gruppo SE3. Trasforma un elemento del gruppo SE3 (una trasformazione rigida) 

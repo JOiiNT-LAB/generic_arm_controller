@@ -70,22 +70,33 @@ def generate_launch_description():
             output='screen',      # Mostra l'output del nodo sulla console
         ),
 
-        # --- 3. Avvia il tuo Nodo IK (Inverse Kinematics) ---
-        Node(
-            package='ur10e_ros2', # Assicurati che questo sia il nome esatto del tuo pacchetto
-            executable='ur10e_ik_trajectory_node', # Nome dell'eseguibile definito in setup.py
-            name='ur10e_ik_trajectory_node',       # Nome del nodo ROS 2
-            output='screen',                      # Mostra l'output del nodo sulla console
-        ),
-
-        # --- Puoi aggiungere altri nodi qui se necessario ---
-        # Ad esempio, il tuo nodo task_orchestrator
+        # # --- 3. Avvia il tuo Nodo IK (Inverse Kinematics) trajctory controller---
+        # Node(
+        #     package='ur10e_ros2', # Assicurati che questo sia il nome esatto del tuo pacchetto
+        #     executable='ur10e_ik_trajectory_node', # Nome dell'eseguibile definito in setup.py
+        #     name='ur10e_ik_trajectory_node',       # Nome del nodo ROS 2
+        #     output='screen',                      # Mostra l'output del nodo sulla console
+        # ),
         Node(
             package='ur10e_ros2',
             executable='task_saving_node_complete',
             name='task_saving_node_complete', # Usa un nome descrittivo per il nodo
             output='screen',
         ),
+       # --- 3. Avvia il tuo Nodo IK (Inverse Kinematics) forwaed position controller ---
+        Node(
+            package='ur10e_ros2', # Assicurati che questo sia il nome esatto del tuo pacchetto
+            executable='ik_node_position_controllers', # Nome dell'eseguibile definito in setup.py
+            name='ik_node_position_controllers',       # Nome del nodo ROS 2
+            output='screen',                      # Mostra l'output del nodo sulla console
+        ),
+        Node(
+            package='ur10e_ros2', # Assicurati che questo sia il nome esatto del tuo pacchetto
+            executable='cartesian_planner_node', # Nome dell'eseguibile definito in setup.py
+            name='cartesian_planner_node',       # Nome del nodo ROS 2
+            output='screen',                      # Mostra l'output del nodo sulla console
+        ),
+
     ])
 
 
