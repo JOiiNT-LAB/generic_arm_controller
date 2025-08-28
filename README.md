@@ -155,9 +155,9 @@ ros2 topic pub /target_cartesian_pose geometry_msgs/PoseStamped "header:
   frame_id: 'base_link'
 pose:
   position:
-    x: 0.4
-    y: 0.1
-    z: 0.3
+    x: 0.8
+    y: 0.8
+    z: 0.9
   orientation:
     x: 0.0
     y: 0.0
@@ -165,4 +165,6 @@ pose:
     w: 1.0"
 
 Implementeazine di un nodo che generi le traiettorie partendo da questo ik_node
+
+ ros2 topic pub /target_robot_pose geometry_msgs/PoseStamped "{header: {frame_id: base_link}, pose: {position: {x: 0.5, y: 0.5, z: 0.9}, orientation: {x: 0.0, y: 0.0, z: 0.0, w: 1.0}}}"
 

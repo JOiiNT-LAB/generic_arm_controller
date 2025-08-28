@@ -41,8 +41,12 @@ class CartesianPlannerNode(Node):
         self.get_logger().info('Initializing Cartesian Planner Node...')
 
         # --- Parametri ---
-        self.waypoint_count = 1000  # Numero di pose intermedie da generare
+        self.waypoint_count = 1000  # Numero totale di waypoint da generare lungo la traiettoria
         self.waypoint_delay = 0.01  # Ritardo (in secondi) tra la pubblicazione di ogni waypoint
+        
+        # Sostituiamo questi parametri con delle soglie di tolleranza
+        self.position_tolerance = 0.01  # Tolleranza in metri (5 mm) per la posizione
+        self.orientation_tolerance = 0.1  # Tolleranza per l'orientamento (valore adimensionale per quaternioni)
 
         # --- Iscrizioni e pubblicazione ---
         self.current_pose_subscription = self.create_subscription(
@@ -70,9 +74,9 @@ class CartesianPlannerNode(Node):
 
         # Variabili di stato
         self.current_pose = None
+        self.target_pose = None
         self.has_current_pose = False
         self.is_moving = False
-        self.waypoints = []
         self.waypoint_index = 0
         
         # Inizializza il timer a None. Verrà creato solo quando serve
@@ -87,6 +91,10 @@ class CartesianPlannerNode(Node):
             self.has_current_pose = True
         
         self.current_pose = msg.pose
+        
+        # Questo è il nuovo controllo per fermare il movimento
+        if self.is_moving and self.check_target_reached():
+            self.stop_movement()
 
     def target_pose_callback(self, msg: PoseStamped):
         """
@@ -103,6 +111,21 @@ class CartesianPlannerNode(Node):
         self.get_logger().info("Received new target pose. Starting trajectory planning...")
 
         self.is_moving = True
+        self.target_pose = msg.pose
+        self.waypoint_index = 0
+        
+        # Avvia il timer per pubblicare i waypoint a intervalli regolari
+        if self.waypoint_timer is None:
+            self.waypoint_timer = self.create_timer(self.waypoint_delay, self.publish_waypoint)
+    
+    def publish_waypoint(self):
+        """
+        Callback del timer. Genera e pubblica il prossimo waypoint.
+        """
+        # Verifica se abbiamo già pubblicato tutti i waypoint
+        if self.waypoint_index >= self.waypoint_count:
+            self.get_logger().info("All planned waypoints have been published. Waiting for robot to reach target...")
+            return
 
         # Posa di partenza (la posa corrente del robot)
         current_position = np.array([self.current_pose.position.x, 
@@ -114,56 +137,73 @@ class CartesianPlannerNode(Node):
                                              self.current_pose.orientation.w])
         
         # Posa di arrivo
-        target_position = np.array([msg.pose.position.x, msg.pose.position.y, msg.pose.position.z])
-        target_orientation_quat = np.array([msg.pose.orientation.x, 
-                                            msg.pose.orientation.y, 
-                                            msg.pose.orientation.z, 
-                                            msg.pose.orientation.w])
+        target_position = np.array([self.target_pose.position.x, self.target_pose.position.y, self.target_pose.position.z])
+        target_orientation_quat = np.array([self.target_pose.orientation.x, 
+                                            self.target_pose.orientation.y, 
+                                            self.target_pose.orientation.z, 
+                                            self.target_pose.orientation.w])
         
-        # Genera tutti i waypoint e li salva in una lista
-        self.waypoints = []
-        for i in range(self.waypoint_count):
-            t = (i + 1) / self.waypoint_count
-            
-            interp_position = current_position + t * (target_position - current_position)
-            interp_orientation_quat = slerp_quaternion(current_orientation_quat, target_orientation_quat, t)
+        # Calcola il parametro di interpolazione (t) in base al waypoint_index
+        t = (self.waypoint_index + 1) / self.waypoint_count
+        
+        # Genera il waypoint corrente
+        # traiettoiria lineare per la posizione e SLERP per l'orientamento
+        # viene generato un waypoint alla volta mentre il robot si muove verso il target
+        interp_position = current_position + t * (target_position - current_position)
+        interp_orientation_quat = slerp_quaternion(current_orientation_quat, target_orientation_quat, t)
 
-            waypoint_msg = PoseStamped()
-            waypoint_msg.header.frame_id = 'base_link'
-            waypoint_msg.header.stamp = self.get_clock().now().to_msg()
-            
-            waypoint_msg.pose.position.x = interp_position[0]
-            waypoint_msg.pose.position.y = interp_position[1]
-            waypoint_msg.pose.position.z = interp_position[2]
-            
-            waypoint_msg.pose.orientation.x = interp_orientation_quat[0]
-            waypoint_msg.pose.orientation.y = interp_orientation_quat[1]
-            waypoint_msg.pose.orientation.z = interp_orientation_quat[2]
-            waypoint_msg.pose.orientation.w = interp_orientation_quat[3]
-            self.waypoints.append(waypoint_msg)
-            
-        self.waypoint_index = 0
+        waypoint_msg = PoseStamped()
+        waypoint_msg.header.frame_id = 'base_link'
+        waypoint_msg.header.stamp = self.get_clock().now().to_msg()
         
-        # Avvia il timer per pubblicare i waypoint a intervalli regolari
-        if self.waypoint_timer is None:
-            self.waypoint_timer = self.create_timer(self.waypoint_delay, self.publish_waypoint)
+        waypoint_msg.pose.position.x = interp_position[0]
+        waypoint_msg.pose.position.y = interp_position[1]
+        waypoint_msg.pose.position.z = interp_position[2]
+        
+        waypoint_msg.pose.orientation.x = interp_orientation_quat[0]
+        waypoint_msg.pose.orientation.y = interp_orientation_quat[1]
+        waypoint_msg.pose.orientation.z = interp_orientation_quat[2]
+        waypoint_msg.pose.orientation.w = interp_orientation_quat[3]
+        
+        # Pubblica il waypoint e aggiorna l'indice
+        self.waypoint_publisher.publish(waypoint_msg)
+        self.get_logger().info(f"Published waypoint {self.waypoint_index + 1}/{self.waypoint_count}")
+        self.waypoint_index += 1
     
-    def publish_waypoint(self):
+    def check_target_reached(self):
         """
-        Callback del timer. Pubblica il prossimo waypoint.
+        Verifica se la posa corrente è vicina alla posa target.
         """
-        # Verifica se ci sono ancora waypoint da pubblicare
-        if self.waypoint_index < len(self.waypoints):
-            waypoint_to_publish = self.waypoints[self.waypoint_index]
-            self.waypoint_publisher.publish(waypoint_to_publish)
-            self.get_logger().info(f"Published waypoint {self.waypoint_index + 1}/{len(self.waypoints)}")
-            self.waypoint_index += 1
-        else:
-            # Tutti i waypoint sono stati pubblicati, ferma il timer
+        if self.current_pose is None or self.target_pose is None:
+            return False
+
+        current_pos = np.array([self.current_pose.position.x, self.current_pose.position.y, self.current_pose.position.z])
+        target_pos = np.array([self.target_pose.position.x, self.target_pose.position.y, self.target_pose.position.z])
+        
+        # Calcola la distanza euclidea tra le posizioni
+        position_diff = np.linalg.norm(current_pos - target_pos)
+
+        # Calcola la differenza tra le orientazioni dei quaternioni
+        # Un modo semplice è usare il dot product. Se è vicino a 1 (o -1), sono molto simili.
+        current_quat = np.array([self.current_pose.orientation.x, self.current_pose.orientation.y, self.current_pose.orientation.z, self.current_pose.orientation.w])
+        target_quat = np.array([self.target_pose.orientation.x, self.target_pose.orientation.y, self.target_pose.orientation.z, self.target_pose.orientation.w])
+        
+        dot_product = np.abs(np.dot(current_quat, target_quat))
+        
+        if position_diff < self.position_tolerance and dot_product > (1 - self.orientation_tolerance):
+            self.get_logger().info("Target pose reached!")
+            return True
+        return False
+        
+    def stop_movement(self):
+        """
+        Ferma il timer e resetta lo stato.
+        """
+        if self.waypoint_timer:
             self.waypoint_timer.destroy()
             self.waypoint_timer = None
-            self.is_moving = False
-            self.get_logger().info("Waypoint publishing complete. The robot should have reached the target.")
+        self.is_moving = False
+        self.get_logger().info("Movement complete. Planner is now ready for a new target.")
 
 
 def main(args=None):
