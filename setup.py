@@ -35,7 +35,6 @@ setup(
             f'fk_node = {package_name}.fk_node:main',
             f'ik_node_position_controllers = {package_name}.ik_node_position_controllers:main',
             f'cartesian_planner_node = {package_name}.cartesian_planner_node:main',
-
             f'marker_pose_transformer_node = {package_name}.marker_pose_transformer_node:main',
             f'object_grapping_node = {package_name}.object_grapping_node:main',
             f'pose_publisher_node = {package_name}.PosePublisher_node:main',

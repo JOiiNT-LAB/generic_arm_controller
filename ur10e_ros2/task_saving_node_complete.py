@@ -29,7 +29,13 @@ class PoseSaverNode(Node):
 
         # Gestore delle pose
         self.all_poses = []
-        self.json_file_path = os.path.join(os.path.expanduser("~"), 'ros2_ws', 'task_results', 'robot_poses_ws.json')
+        # Percorso assoluto del file JSON direttamente nella cartella src
+        self.json_file_path = os.path.join(
+            os.path.expanduser('~/ros2_ws/src'),
+            'robot_poses_ws.json'
+        )
+
+
         self._load_poses()
 
         # --- Servizio per salvare la posa ---
@@ -43,7 +49,7 @@ class PoseSaverNode(Node):
         # --- Nuovo servizio per pulire le pose (utilizzando std_srvs/srv/Trigger) ---
         self.clear_poses_service = self.create_service(
             Trigger, # Usiamo std_srvs/srv/Trigger qui
-            'clear_saved_poses', # Ho usato il nome che hai provato prima, per coerenza
+            'clear_saved_poses', 
             self.clear_poses_callback
         )
         self.get_logger().info('Service /clear_saved_poses created using std_srvs/srv/Trigger.')
@@ -72,24 +78,33 @@ class PoseSaverNode(Node):
         target_frame = self.end_effector_frame
         source_frame = ""
         pose_type = ""
-        
-        if request.save_mode == SavePose.Request.SAVE_MODE_EE_TO_BASE:
+            # --- Interpretazione del save_mode numerico ---
+        if request.save_mode == 0:
+            # EE rispetto a base_link
             pose_type = "absolute"
             source_frame = self.base_frame
-        elif request.save_mode == SavePose.Request.SAVE_MODE_EE_TO_CAMERA:
+
+        elif request.save_mode == 1:
+            # EE rispetto alla camera (frame fisso)
             pose_type = "relative"
-            source_frame = "camera_color_optical_frame" # Assicurati che il nome del frame sia corretto
-        elif request.save_mode == SavePose.Request.SAVE_MODE_EE_TO_ARUCO:
+            source_frame = "camera_color_optical_frame"
+
+        elif request.save_mode == 2:
+            # EE rispetto a un frame ARUCO
             pose_type = "relative"
             source_frame = request.reference_frame
-            if not source_frame:
+
+            if not source_frame or source_frame == "":
                 response.success = False
-                response.message = "Error: A 'reference_frame'  is required for ARUCO mode."
+                response.message = (
+                    "ERROR: save_mode=2 (ARUCO) requires a valid reference_frame."
+                )
                 self.get_logger().error(response.message)
                 return response
+
         else:
             response.success = False
-            response.message = f"Error: Invalid save_mode '{request.save_mode}'."
+            response.message = f"ERROR: Invalid save_mode={request.save_mode}. Must be 0, 1, or 2."
             self.get_logger().error(response.message)
             return response
 
