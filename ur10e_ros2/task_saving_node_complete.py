@@ -30,10 +30,16 @@ class PoseSaverNode(Node):
         # Gestore delle pose
         self.all_poses = []
         # Percorso assoluto del file JSON direttamente nella cartella src
-        self.json_file_path = os.path.join(
-            os.path.expanduser('~/ros2_ws/src'),
-            'robot_poses_ws.json'
-        )
+        # Salva SEMPRE in: ~/ros2_ws/src/task_result/
+        workspace_dir = os.path.expanduser('~/ros2_ws/src')
+        task_result_dir = os.path.join(workspace_dir, 'task_result')
+
+        # Crea la cartella se non esiste
+        os.makedirs(task_result_dir, exist_ok=True)
+
+        self.json_file_path = os.path.join(task_result_dir, 'robot_poses_ws.json')
+
+        self.get_logger().info(f"Saving poses to: {self.json_file_path}")
 
 
         self._load_poses()

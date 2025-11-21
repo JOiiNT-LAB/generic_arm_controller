@@ -32,8 +32,6 @@ ros2 run ur10e_ros2 ur10e_ik_trajectory_node
 
 
 
-andare su 
-
 
 
 

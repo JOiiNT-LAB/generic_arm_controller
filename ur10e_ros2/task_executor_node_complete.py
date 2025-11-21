@@ -68,8 +68,8 @@ class TaskExecutorNode(Node):
         self.ik_completion_timeout = 20.0 
 
         home_dir = os.path.expanduser("~")
-        self.ros2_ws_dir = os.path.join(home_dir, 'ros2_ws')
-        self.task_results_dir_ws = os.path.join(self.ros2_ws_dir, 'task_results')
+        self.ros2_ws_dir = os.path.join(home_dir, 'ros2_ws/src')
+        self.task_results_dir_ws = os.path.join(self.ros2_ws_dir, 'task_result')
         self.json_file_path_ws = os.path.join(self.task_results_dir_ws, 'robot_poses_ws.json')
         self.get_logger().info(f"Looking for saved poses in: {self.json_file_path_ws}")
 
