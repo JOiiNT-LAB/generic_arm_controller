@@ -172,7 +172,7 @@ class UR10eIKTrajectoryNode(Node):
         self.max_iter = 4000   # Maximum iterations for IK solver
         self.dt = 0.1          # Time step for numerical integration in IK
         self.damping = 5e-2    # Damping factor for damped least squares
-        self.trajectory_duration = 15.0 # seconds for the robot to reach the target
+        self.trajectory_duration = 3.0 # seconds for the robot to reach the target
 
         # --- ROS2 Subscriptions and Action Client ---
         self.pose_subscription = self.create_subscription(PoseStamped, '/target_cartesian_pose', self.pose_callback, 10)

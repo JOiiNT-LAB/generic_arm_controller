@@ -160,3 +160,53 @@ Implementeazine di un nodo che generi le traiettorie partendo da questo ik_node
 
  ros2 topic pub /target_robot_pose geometry_msgs/PoseStamped "{header: {frame_id: base_link}, pose: {position: {x: 0.5, y: 0.5, z: 0.9}, orientation: {x: 0.0, y: 0.0, z: 0.0, w: 1.0}}}"
 
+
+
+
+
+
+
+
+
+ros2 topic pub /target_cartesian_pose geometry_msgs/PoseStamped "header:
+  frame_id: 'base_link'
+pose:
+  position:
+    x: 0.70  # Avanti
+    y: 0.0
+    z: 0.45  # Altezza media
+  orientation:
+    x: 0.0
+    y: 0.0
+    z: 0.0
+    w: 1.0" --once
+
+
+ros2 topic pub /target_cartesian_pose geometry_msgs/PoseStamped "header:
+  frame_id: 'base_link'
+pose:
+  position:
+    x: 0.7  # Avanti
+    y: 0.3
+    z: 0.45  # Altezza media
+  orientation:
+    x: 0.0
+    y: 0.0
+    z: 0.0
+    w: 1.0" --once
+
+
+
+
+ros2 topic pub /target_cartesian_pose geometry_msgs/PoseStamped "header:
+  frame_id: 'base_link'
+pose:
+  position:
+    x: 0.70
+    y: -0.50
+    z: 0.65
+  orientation:
+    x: 0.5  # Combinazione Roll/Yaw estrema
+    y: 0.5
+    z: 0.5
+    w: -0.5" --once
