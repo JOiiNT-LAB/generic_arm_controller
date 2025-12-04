@@ -10,6 +10,11 @@ import os
 from ament_index_python.packages import get_package_share_directory
 from tf2_ros import Buffer, TransformListener, TransformException
 
+
+'''This Python script is a ROS 2 node (MarkerPoseTransformerNode) 
+designed to calculate the target pose for a robot's end-effector (such as the UR10e) to position it a specified offset above a detected ArUco marker.
+Essentially, it implements the pose transformation from the camera frame to the robot base frame, using hand-eye calibration and the robot's current
+ forward kinematics (FK).'''
 class MarkerPoseTransformerNode(Node):
     def __init__(self):
         super().__init__('marker_pose_transformer_node')
