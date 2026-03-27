@@ -1,39 +1,40 @@
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, OpaqueFunction
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, OpaqueFunction, ExecuteProcess
+from launch.conditions import IfCondition
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, TextSubstitution
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
 import os
-import yaml # Importa la libreria YAML
+import yaml  # Load YAML library
 
 
-# Funzione per leggere il file YAML di calibrazione e avviare il static_transform_publisher
+# Function to read calibration YAML file and start static_transform_publisher
 def load_calibration_from_yaml(context):
-    # Costruisci il percorso completo al file YAML di calibrazione
-    # Assicurati che 'ur10e_ros2' sia il nome corretto del tuo pacchetto
+    # Build the complete path to the calibration YAML file
+    # Make sure 'ur10e_ros2' is the correct package name
     calibration_file_path = PathJoinSubstitution([
         FindPackageShare('ur10e_ros2'),
         'calibration_results',
         'hand_eye_transform.yaml'
-    ]).perform(context) # .perform(context) è necessario per risolvere le sostituzioni al runtime
+    ]).perform(context)  # .perform(context) needed to resolve substitutions at runtime
 
-    # Verifica che il file esista prima di provare a caricarlo
+    # Verify that the file exists before attempting to load it
     if not os.path.exists(calibration_file_path):
-        # Se il file non viene trovato, solleva un errore significativo
-        raise FileNotFoundError(f"Errore: File di calibrazione non trovato al percorso: {calibration_file_path}")
+        # If file is not found, raise a meaningful error
+        raise FileNotFoundError(f"Error: Calibration file not found at path: {calibration_file_path}")
 
     try:
-        # Apri e carica i dati YAML
+        # Open and load YAML data
         with open(calibration_file_path, 'r') as f:
             calib_data = yaml.safe_load(f)
 
-        # Estrai i valori di traslazione e rotazione
+        # Extract translation and rotation values
         trans = calib_data['translation']
         rot = calib_data['rotation']
 
-        # Prepara gli argomenti per il nodo static_transform_publisher
-        # Nota l'ordine: x, y, z, roll, pitch, yaw (o quaternion x,y,z,w), parent_frame, child_frame
-        # Qui stai usando i quaternioni (x, y, z, w)
+        # Prepare arguments for static_transform_publisher node
+        # Note the order: x, y, z, roll, pitch, yaw (or quaternion x,y,z,w), parent_frame, child_frame
+        # Here we use quaternions (x, y, z, w)
         static_tf_args = [
             str(trans['x']), str(trans['y']), str(trans['z']),
             str(rot['x']), str(rot['y']), str(rot['z']), str(rot['w']),
@@ -41,53 +42,94 @@ def load_calibration_from_yaml(context):
             calib_data['child_frame_id']
         ]
         
-        # Restituisci una lista di azioni, in questo caso un singolo nodo
+        # Return a list of actions, in this case a single node
         return [
             Node(
                 package='tf2_ros',
                 executable='static_transform_publisher',
                 name='camera_hand_eye_tf_publisher',
-                output='screen', # Mostra l'output del nodo sulla console
+                output='screen',  # Show node output on console
                 arguments=static_tf_args
             )
         ]
     except Exception as e:
-        # Gestisce eventuali errori durante il caricamento o l'analisi del YAML
-        raise RuntimeError(f"Errore durante il caricamento della calibrazione dal file YAML: {e}")
+        # Handle any errors during YAML loading or parsing
+        raise RuntimeError(f"Error during calibration loading from YAML file: {e}")
 
 def generate_launch_description():
     return LaunchDescription([
-        # --- 1. Avvia il Nodo Static Transform Publisher per la calibrazione ---
-        # OpaqueFunction esegue la funzione Python 'load_calibration_from_yaml'
-        # e include le azioni (Nodi) che essa restituisce.
+        # --- Launch Arguments ---
+        DeclareLaunchArgument(
+            'enable_realsense',
+            default_value='false',
+            description='Enable Realsense camera'
+        ),
+        DeclareLaunchArgument(
+            'enable_qb',
+            default_value='false',
+            description='Enable QBSofthand gripper'
+        ),
+
+        # --- 0. Start LLM App ---
+        IncludeLaunchDescription(
+            PathJoinSubstitution([
+                FindPackageShare('llm_app'),
+                'launch',
+                'llm_app.launch.py'
+            ])
+        ),
+
+        # --- Realsense (if enabled) ---
+        IncludeLaunchDescription(
+            PathJoinSubstitution([
+                FindPackageShare('realsense2_camera'),
+                'launch',
+                'rs_launch.py'
+            ]),
+            condition=IfCondition(LaunchConfiguration('enable_realsense'))
+        ),
+
+        # --- QB SoftHand (if enabled) ---
+        IncludeLaunchDescription(
+            PathJoinSubstitution([
+                FindPackageShare('qb_softhand_industry_driver'),
+                'launch',
+                'softhand_industry_communication_handler.launch.py'
+            ]),
+            condition=IfCondition(LaunchConfiguration('enable_qb'))
+        ),
+
+        # --- 1. Start Static Transform Publisher Node for calibration ---
+        # OpaqueFunction executes the Python function 'load_calibration_from_yaml'
+        # and includes the actions (Nodes) that it returns.
         OpaqueFunction(function=load_calibration_from_yaml),
 
-        # --- 2. Avvia il tuo Nodo FK (Forward Kinematics) ---
+        # --- 2. Start Forward Kinematics (FK) Node ---
         Node(
-            package='ur10e_ros2', # Assicurati che questo sia il nome esatto del tuo pacchetto
-            executable='fk_node', # Nome dell'eseguibile definito in setup.py
-            name='fk_node',       # Nome del nodo ROS 2
-            output='screen',      # Mostra l'output del nodo sulla console
+            package='ur10e_ros2',  # Make sure this is the correct package name
+            executable='fk_node',  # Executable name defined in setup.py
+            name='fk_node',        # ROS 2 node name
+            output='screen',       # Show node output on console
         ),
         Node(
             package='ur10e_ros2',
             executable='task_executor_node_complete',
-            name='task_executor_node_complete', # Usa un nome descrittivo per il nodo
+            name='task_executor_node_complete',  # Descriptive node name
             output='screen',
         ),
 
         Node(
             package='ur10e_ros2',
             executable='task_saving_node_complete',
-            name='task_saving_node_complete', # Usa un nome descrittivo per il nodo
+            name='task_saving_node_complete',  # Descriptive node name
             output='screen',
         ),
 
         Node(
-            package='ur10e_ros2', # Assicurati che questo sia il nome esatto del tuo pacchetto
-            executable='ur10e_ik_trajectory_node', # Nome dell'eseguibile definito in setup.py
-            name='ur10e_ik_trajectory_node',       # Nome del nodo ROS 2
-            output='screen',                      # Mostra l'output del nodo sulla console
+            package='ur10e_ros2',  # Make sure this is the correct package name
+            executable='ur10e_ik_trajectory_node',  # Executable name defined in setup.py
+            name='ur10e_ik_trajectory_node',        # ROS 2 node name
+            output='screen',                        # Show node output on console
         ),
 
     ])

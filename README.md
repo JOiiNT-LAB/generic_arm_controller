@@ -1,7 +1,9 @@
 # ur10e_ros2 Redme provissorio -----
 
  
- 
+ ros2 launch ur_calibration calibration_correction.launch.py \
+  robot_ip:=192.168.56.100 \
+  output_filename:=/home/rosuser/ros2_ws/calibration.yaml
 
  
 ## commando per accendere il robot real
@@ -11,6 +13,10 @@ ros2 launch ur_robot_driver ur_control.launch.py     ur_type:=ur10e     robot_ip
 ```
 
 ### NB vai su urcap->external_control e imposta il controllo by 192.168.56.1 (il pc deve avere indirizzo di rete 192.168.56.1)
+
+
+
+
 ## commando per vedere posizione la posizione cartesiana
 
 ```
@@ -77,7 +83,7 @@ Una volta creata viene generato un file yaml
 
 ## utilizzare quest come laucnhe complessivo 
 ```
-ros2 launch my_ur10e_fk robot_vision_ik_setup.launch.py 
+ros2 launch ur10e_ros2 robot_vision_ik_traj_setup.launch.py 
 ```
 
 
@@ -114,7 +120,8 @@ ros2 service call /save_pose ur_msgs/srv/SavePose "{save_mode: 0, task_name: 'ho
 ros2 service call /save_pose ur_msgs/srv/SavePose "{save_mode: 1, task_name: 'pre_grasp_from_camera', reference_frame: ''}"
 ```
 ```
-ros2 service call /save_pose ur_msgs/srv/SavePose "{save_mode: 2, task_name: 'pick_aruco_257', reference_frame: 'aruco_marker_257'}"
+ros2 service call /save_pose ur_msgs/srv/SavePose "{save_mode: 2, task_name: 'pick_aruco_dynamic', reference_frame: 'aruco_marker_frame'}"
+
 ```
 
 Pulire le pose
@@ -154,8 +161,6 @@ per eseguire tutti i task
 usiamo un robot_ip inventato 
 
 
-
-
 #con quello di traiettorie
 ```
 ros2 launch ur_robot_driver ur_control.launch.py \
@@ -165,6 +170,21 @@ ros2 launch ur_robot_driver ur_control.launch.py \
     launch_rviz:=true \
     initial_joint_controller:=scaled_joint_trajectory_controller
 ```
+## commando per accendere il robot real
+```
+
+ros2 launch ur_robot_driver ur_control.launch.py     ur_type:=ur10e     robot_ip:=192.168.56.100     launch_rviz:=true     joint_controller:=scaled_joint_trajectory_controller
+```
+
+Lanciare il nodo di controllo
+
+'''
+ros2 launch ur10e_ros2 robot_vision_ik_traj_setup.launch.py 
+'''
+
+
+
+
 
 
 
@@ -238,3 +258,55 @@ pose:
     z: 0.5
     w: -0.5" --once
 ```
+###SOFTHAND
+
+
+
+### SOFTHAND
+Segui questo info  per installare la mano
+https://index.ros.org/r/qb_softhand_industry/
+
+attivare la mano
+ros2 launch qb_softhand_industry_driver softhand_industry_communication_handler.launch.py 
+
+
+attivare i motori della mano
+ros2 service call   /qb_softhand_industry_communication_handler/activate_motors   qb_softhand_industry_srvs/srv/Trigger "{}"
+
+Si Possono usare i topic ufficiali di qb
+chiudere la mano
+ros2 service call   /qb_softhand_industry_communication_handler/set_command   qb_softhand_industry_srvs/srv/SetCommand   "{max_repeats: 1, set_commands: true, position_command: 3000}"
+
+Aprire la mano
+ros2 service call   /qb_softhand_industry_communication_handler/set_command   qb_softhand_industry_srvs/srv/SetCommand   "{max_repeats: 1, set_commands: true, position_command: 0}"
+
+max 3500 min 0
+
+Aggiunto i servizi al launcher dell ur
+```
+ ros2 service call /gripper_control ur_msgs/srv/GripperCommand "{command: 'close'}"
+ ros2 service call /gripper_control ur_msgs/srv/GripperCommand "{command: 'open'}"
+```
+
+
+
+### Centrealizzazione
+Ho inserito tutto i commandi anche di linguaggio naturale in unico launcher, Questo lancia: LLM app + FK + IK + Task executor + tutto il sistema 
+# Avvia senza dispositivi (simulazione)
+ros2 launch ur10e_ros2 robot_vision_ik_traj_setup.launch.py
+
+# Avvia con realsense
+ros2 launch ur10e_ros2 robot_vision_ik_traj_setup.launch.py enable_realsense:=true
+
+# Avvia con qb softhand
+ros2 launch ur10e_ros2 robot_vision_ik_traj_setup.launch.py enable_qb:=true
+
+# Avvia con entrambi
+ros2 launch ur10e_ros2 robot_vision_ik_traj_setup.launch.py enable_realsense:=true enable_qb:=true
+
+Terminale 2 (chat interattiva - in un altro docker exec):
+ros2 run voice_command_interpreter nl_savepose_parser
+🗣️ Comando:Salva la posa home
+Chiudi la mano
+Apri la mano
+Esegui i task

@@ -1,3 +1,4 @@
+from urllib3 import request
 import rclpy
 from rclpy.node import Node
 import json
@@ -11,7 +12,10 @@ from tf2_ros.transform_listener import TransformListener
 
 # Importazione del nostro nuovo servizio e del servizio Trigger standard
 from ur_msgs.srv import SavePose
+from ur_msgs.srv import GripperCommand
+
 from std_srvs.srv import Trigger # Importa il servizio Trigger standard
+from qb_softhand_industry_srvs.srv import SetCommand  # ROS2 Humble
 
 class PoseSaverNode(Node):
     def __init__(self):
@@ -59,6 +63,12 @@ class PoseSaverNode(Node):
             self.clear_poses_callback
         )
         self.get_logger().info('Service /clear_saved_poses created using std_srvs/srv/Trigger.')
+        # --- Servizio per aprire/chiudere mano ---
+        self.save_gripper_service = self.create_service(
+            GripperCommand,
+            'gripper_control',
+            self.gripper_callback
+        )
 
     def _load_poses(self):
         """Carica le pose esistenti dal file JSON."""
@@ -172,6 +182,57 @@ class PoseSaverNode(Node):
             response.message = f"Failed to clear poses: {e}"
             self.get_logger().error(response.message)
         return response
+    def gripper_callback(self, request, response):
+        """Apri o chiudi la mano in base al comando."""
+        self.get_logger().info(f"Gripper command received: {request.command}")
+
+        client = self.create_client(SetCommand, '/qb_softhand_industry_communication_handler/set_command')
+        if not client.wait_for_service(timeout_sec=3.0):
+            response.success = False
+            response.message = "QB SoftHand service non disponibile!"
+            return response
+
+        req = SetCommand.Request()
+        req.max_repeats = 1
+        req.set_commands = True
+
+        if request.command.lower() == "close":
+            req.position_command = 3500
+            state_str = "closed"
+        elif request.command.lower() == "open":
+            req.position_command = 0
+            state_str = "open"
+        else:
+            response.success = False
+            response.message = f"Comando gripper non valido: {request.command}"
+            return response
+
+        # Chiamata asincrona
+        future = client.call_async(req)
+        future.add_done_callback(lambda f: self._gripper_done_callback(f, state_str))
+
+        response.success = True
+        response.message = f"Comando gripper '{request.command}' inviato!"
+        return response
+
+    def _gripper_done_callback(self, future, state_str):
+        """Callback quando QB SoftHand ha terminato l'azione"""
+        try:
+            result = future.result()
+            self.get_logger().info(f"QB SoftHand eseguito: {result}")
+
+            # Salva sul JSON lo stato corretto (open o closed)
+            gripper_entry = {
+                "type": "gripper",
+                "state": state_str,
+                "position_command": 0 if state_str=="open" else 3500
+            }
+            self.all_poses.append(gripper_entry)
+            self._save_poses_to_file()
+            self.get_logger().info(f"Stato gripper '{state_str}' salvato sul JSON.")
+        except Exception as e:
+            self.get_logger().error(f"Errore eseguendo QB SoftHand: {e}")
+
 
 # Funzione main (invariata)
 def main(args=None):
