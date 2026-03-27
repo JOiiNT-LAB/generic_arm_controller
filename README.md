@@ -1,36 +1,33 @@
 # ur10e_ros2 Redme provissorio -----
 
- 
- ros2 launch ur_calibration calibration_correction.launch.py \
-  robot_ip:=192.168.56.100 \
-  output_filename:=/home/rosuser/ros2_ws/calibration.yaml
+# Lanciare in modo virtuale ur10e con rviz
+usiamo un robot_ip inventato 
 
- 
+
+#con quello di traiettorie
+```
+ros2 launch ur_robot_driver ur_control.launch.py \
+    ur_type:=ur10e \
+    robot_ip:=127.0.0.1 \
+    use_fake_hardware:=true \
+    launch_rviz:=true \
+    initial_joint_controller:=scaled_joint_trajectory_controller
+```
 ## commando per accendere il robot real
 ```
 
 ros2 launch ur_robot_driver ur_control.launch.py     ur_type:=ur10e     robot_ip:=192.168.56.100     launch_rviz:=true     joint_controller:=scaled_joint_trajectory_controller
 ```
 
+```
+
 ### NB vai su urcap->external_control e imposta il controllo by 192.168.56.1 (il pc deve avere indirizzo di rete 192.168.56.1)
-
-
-
-
-## commando per vedere posizione la posizione cartesiana
-
-```
-ros2 run ur10e_ros2 fk_node 
-```
 
 
 ## commando per attivare il controllo basato su traiettoria
 ```
-
 ros2 run ur10e_ros2 ur10e_ik_trajectory_node 
 ```
-
-
 ## commando per mandare la posizione
 ```
 
@@ -40,13 +37,6 @@ ros2 run ur10e_ros2 ur10e_ik_trajectory_node
 
 
 
-
-
-
-
-
-
-# CALIBRAZIONE
 ## lanciare la realsense
 ```
 ros2 launch realsense2_camera rs_launch.py
@@ -62,23 +52,6 @@ ros2 launch aruco_ros single.launch.py \
     camera_frame:=camera_link
 ```
 
-## Avviare il nodo di calibrazione della camera
-```
-ros2 run my_handeye_python calibrator_node 
-```
-
-## avviare  il servizio per prendere le pos
-```
-
-ros2 service call /calibration_take_pose std_srvs/srv/Empty '{}'
-```
-
-## fare il calcolo della calibrazione 
-```
-ros2 service call /calibrate std_srvs/srv/Empty {}\ 
-```
-
-Una volta creata viene generato un file yaml
 
 
 ## utilizzare quest come laucnhe complessivo 
@@ -87,24 +60,7 @@ ros2 launch ur10e_ros2 robot_vision_ik_traj_setup.launch.py
 ```
 
 
-il nodo
-```
-ros2 run my_ur10e_fk marker_pose_transformer_node
-```
-
-fallisce, forse:
--calibrazion errata
--posizione irrangiubile
--calcoli errati nel nodo
-
-
-
-
-
 Ho creato il nodo task_saving_node_complete, parte con il launch robot_vision_ik_setup.launch.py 
-
-
-
 
 - save_mode: 0 (assoluto): Per posizioni fisse nel mondo, rispetto alla base del robot.
 - save_mode: 1 (relativo alla telecamera):
@@ -145,42 +101,6 @@ ros2 service call /execute_saved_tasks std_srvs/srv/Trigger "{}"
 per eseguire tutti i task
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-# Lanciare in modo virtuale ur10e con rviz
-usiamo un robot_ip inventato 
-
-
-#con quello di traiettorie
-```
-ros2 launch ur_robot_driver ur_control.launch.py \
-    ur_type:=ur10e \
-    robot_ip:=127.0.0.1 \
-    use_fake_hardware:=true \
-    launch_rviz:=true \
-    initial_joint_controller:=scaled_joint_trajectory_controller
-```
-## commando per accendere il robot real
-```
-
-ros2 launch ur_robot_driver ur_control.launch.py     ur_type:=ur10e     robot_ip:=192.168.56.100     launch_rviz:=true     joint_controller:=scaled_joint_trajectory_controller
-```
-
-Lanciare il nodo di controllo
-
-'''
-ros2 launch ur10e_ros2 robot_vision_ik_traj_setup.launch.py 
-'''
 
 
 
@@ -258,7 +178,6 @@ pose:
     z: 0.5
     w: -0.5" --once
 ```
-###SOFTHAND
 
 
 
@@ -287,6 +206,10 @@ Aggiunto i servizi al launcher dell ur
  ros2 service call /gripper_control ur_msgs/srv/GripperCommand "{command: 'close'}"
  ros2 service call /gripper_control ur_msgs/srv/GripperCommand "{command: 'open'}"
 ```
+
+
+
+
 
 
 
