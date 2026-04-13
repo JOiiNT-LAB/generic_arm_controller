@@ -10,8 +10,8 @@ import subprocess
 import re
 import math
 from sensor_msgs.msg import JointState
-
-# Import action-related messages
+#VECCHIO DA ELIMINARE
+# Import action-related messages  
 from rclpy.action import ActionClient
 from control_msgs.action import FollowJointTrajectory
 from trajectory_msgs.msg import JointTrajectoryPoint

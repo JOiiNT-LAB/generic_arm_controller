@@ -1,0 +1,33 @@
+/**:
+  ros__parameters:
+
+    # ----- Robot description -----
+    urdf_package: "ur_description"       # pacchetto ROS con l'URDF/xacro
+    robot_type: "ur10e"                  # tipo robot (ur5e, ur10e, ur16e, ...)
+
+    # ----- Cinematica -----
+    end_effector_frame: "tool0"          # frame end-effector nel modello Pinocchio
+    joint_names:
+      - "shoulder_pan_joint"
+      - "shoulder_lift_joint"
+      - "elbow_joint"
+      - "wrist_1_joint"
+      - "wrist_2_joint"
+      - "wrist_3_joint"
+
+    # ----- Action server -----
+    action_server_name: "/scaled_joint_trajectory_controller/follow_joint_trajectory"
+
+    # ----- Topics -----
+    pose_topic:         "/target_cartesian_pose"
+    joint_states_topic: "/joint_states"
+    ik_result_topic:    "/ik_action_result"
+
+    # ----- IK solver -----
+    ik_tolerance:  0.001    # soglia di convergenza (m / rad)
+    ik_max_iter:   4000     # iterazioni massime
+    ik_dt:         0.1      # passo di integrazione
+    ik_damping:    0.05     # damping per minimi quadrati smorzati
+
+    # ----- Traiettoria -----
+    trajectory_duration: 3.0  # secondi

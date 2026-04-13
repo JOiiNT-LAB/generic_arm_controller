@@ -124,13 +124,26 @@ def generate_launch_description():
             name='task_saving_node_complete',  # Descriptive node name
             output='screen',
         ),
-
         Node(
-            package='ur10e_ros2',  # Make sure this is the correct package name
-            executable='ur10e_ik_trajectory_node',  # Executable name defined in setup.py
-            name='ur10e_ik_trajectory_node',        # ROS 2 node name
-            output='screen',                        # Show node output on console
+            package='ur10e_ros2',
+            executable='ik_trajectory_node',
+            name='ik_trajectory_node',
+            output='screen',
+            parameters=[
+                PathJoinSubstitution([
+                    FindPackageShare('ur10e_ros2'),
+                    'config',
+                    'ik_trajectory_node_params.yaml'
+                ])
+            ]
         ),
+        # Node(
+        #     package='ur10e_ros2',  # Make sure this is the correct package name
+        #     executable='ur10e_ik_trajectory_node',  # Executable name defined in setup.py
+        #     name='ur10e_ik_trajectory_node',        # ROS 2 node name
+        #     output='screen',                        # Show node output on console
+        # ),
 
     ])
+
 
