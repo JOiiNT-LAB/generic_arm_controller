@@ -117,7 +117,11 @@ def generate_launch_description():
             name='task_executor_node_complete',  # Descriptive node name
             output='screen',
         ),
-
+        Node(
+            package='ur10e_ros2',executable='gripper_node',
+            name='gripper_node',  # Descriptive node name
+            output='screen',
+        ),
         Node(
             package='ur10e_ros2',
             executable='task_saving_node_complete',
@@ -137,12 +141,6 @@ def generate_launch_description():
                 ])
             ]
         ),
-        # Node(
-        #     package='ur10e_ros2',  # Make sure this is the correct package name
-        #     executable='ur10e_ik_trajectory_node',  # Executable name defined in setup.py
-        #     name='ur10e_ik_trajectory_node',        # ROS 2 node name
-        #     output='screen',                        # Show node output on console
-        # ),
 
     ])
 
