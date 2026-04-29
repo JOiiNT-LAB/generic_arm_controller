@@ -10,7 +10,7 @@ from tf2_ros.buffer import Buffer
 from tf2_ros.transform_listener import TransformListener
 
 from ur_msgs.srv import SavePose
-from ur_msgs.srv import GripperCommand as GripperSrv  # <-- aggiunto
+from ur_msgs.srv import GripperCommand as GripperSrv
 from std_srvs.srv import Trigger
 
 
@@ -21,50 +21,41 @@ class PoseSaverNode(Node):
 
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
-        self.get_logger().info('TF2 Buffer and Listener initialized.')
 
-        self.base_frame = 'base_link'
+        self.base_frame         = 'base_link'
         self.end_effector_frame = 'tool0'
+        self.all_poses          = []
 
-        self.all_poses = []
-
-        workspace_dir = os.path.expanduser('~/ros2_ws/src')
-        task_result_dir = os.path.join(workspace_dir, 'task_result')
+        workspace_dir    = os.path.expanduser('~/ros2_ws/src')
+        task_result_dir  = os.path.join(workspace_dir, 'task_result')
         os.makedirs(task_result_dir, exist_ok=True)
         self.json_file_path = os.path.join(task_result_dir, 'robot_poses_ws.json')
-        self.get_logger().info(f"Saving poses to: {self.json_file_path}")
+        self.get_logger().info(f"Saving to: {self.json_file_path}")
 
         self._load_poses()
 
-        # --- Servizio per salvare una posa robot ---
         self.save_pose_service = self.create_service(
-            SavePose,
-            'save_pose',
-            self.save_pose_callback
+            SavePose, 'save_pose', self.save_pose_callback
         )
-        self.get_logger().info('Service /save_pose created.')
 
-        # --- Servizio per salvare un'azione gripper ---
-        # Riusa GripperSrv (command + gripper_type) come tipo di richiesta:
-        # request.command   → "open" | "close"
+        # /save_gripper_action
+        # request.command      → "open" | "close" | "move"
+        # request.position     → float32 [0.0, 1.0]  (usato con "move")
         # request.gripper_type → "rg2" | "softhand" | "auto"
         self.save_gripper_service = self.create_service(
-            GripperSrv,
-            'save_gripper_action',
-            self.save_gripper_action_callback
+            GripperSrv, 'save_gripper_action', self.save_gripper_action_callback
         )
-        self.get_logger().info('Service /save_gripper_action created.')
 
-        # --- Servizio per pulire tutte le pose ---
         self.clear_poses_service = self.create_service(
-            Trigger,
-            'clear_saved_poses',
-            self.clear_poses_callback
+            Trigger, 'clear_saved_poses', self.clear_poses_callback
         )
-        self.get_logger().info('Service /clear_saved_poses created.')
+
+        self.get_logger().info(
+            'Services ready: /save_pose, /save_gripper_action, /clear_saved_poses'
+        )
 
     # ------------------------------------------------------------------
-    # Caricamento / salvataggio file JSON
+    # I/O file JSON
     # ------------------------------------------------------------------
 
     def _load_poses(self):
@@ -73,7 +64,7 @@ class PoseSaverNode(Node):
                 with open(self.json_file_path, 'r') as f:
                     self.all_poses = json.load(f)
                 self.get_logger().info(
-                    f"Loaded {len(self.all_poses)} entries from {self.json_file_path}"
+                    f"Loaded {len(self.all_poses)} entries."
                 )
         except Exception as e:
             self.get_logger().error(f"Failed to load poses: {e}")
@@ -83,61 +74,51 @@ class PoseSaverNode(Node):
             os.makedirs(os.path.dirname(self.json_file_path), exist_ok=True)
             with open(self.json_file_path, 'w') as f:
                 json.dump(self.all_poses, f, indent=4)
-            self.get_logger().info(
-                f"Saved {len(self.all_poses)} entries to file."
-            )
         except Exception as e:
-            self.get_logger().error(f"Failed to save poses to file: {e}")
+            self.get_logger().error(f"Failed to save to file: {e}")
 
     # ------------------------------------------------------------------
-    # Callback: salva posa robot  (task_type = "move")
+    # Callback: salva posa robot
     # ------------------------------------------------------------------
 
     def save_pose_callback(self, request: SavePose.Request, response: SavePose.Response):
         target_frame = self.end_effector_frame
         source_frame = ""
-        pose_type = ""
+        pose_type    = ""
 
         if request.save_mode == 0:
-            pose_type = "absolute"
+            pose_type    = "absolute"
             source_frame = self.base_frame
         elif request.save_mode == 1:
-            pose_type = "relative"
+            pose_type    = "relative"
             source_frame = "camera_color_optical_frame"
         elif request.save_mode == 2:
-            pose_type = "relative"
+            pose_type    = "relative"
             source_frame = request.reference_frame
             if not source_frame:
                 response.success = False
-                response.message = (
-                    "ERROR: save_mode=2 (ARUCO) requires a valid reference_frame."
-                )
+                response.message = "ERROR: save_mode=2 richiede reference_frame."
                 self.get_logger().error(response.message)
                 return response
         else:
             response.success = False
-            response.message = (
-                f"ERROR: Invalid save_mode={request.save_mode}. Must be 0, 1, or 2."
-            )
+            response.message = f"ERROR: save_mode={request.save_mode} non valido."
             self.get_logger().error(response.message)
             return response
 
         try:
             now = rclpy.time.Time()
-            transform_stamped = self.tf_buffer.lookup_transform(
-                source_frame,
-                target_frame,
-                now,
+            ts  = self.tf_buffer.lookup_transform(
+                source_frame, target_frame, now,
                 timeout=rclpy.duration.Duration(seconds=3.0)
             )
-
-            t = transform_stamped.transform.translation
-            r = transform_stamped.transform.rotation
+            t = ts.transform.translation
+            r = ts.transform.rotation
 
             pose_data = {
-                "task_type": "move",          # <-- campo discriminante per l'executor
-                "task_name": request.task_name,
-                "type": pose_type,
+                "task_type":    "move",
+                "task_name":    request.task_name,
+                "type":         pose_type,
                 "source_frame": source_frame,
                 "target_frame": target_frame,
                 "transform": {
@@ -151,65 +132,76 @@ class PoseSaverNode(Node):
 
             response.success = True
             response.message = (
-                f"Saved pose '{request.task_name}' "
+                f"Saved '{request.task_name}' "
                 f"({pose_type}: {target_frame} w.r.t. {source_frame})."
             )
             self.get_logger().info(response.message)
 
         except TransformException as ex:
             response.success = False
-            response.message = (
-                f"Could not transform '{target_frame}' to '{source_frame}': {ex}"
-            )
+            response.message = f"TF error: {ex}"
             self.get_logger().error(response.message)
 
         return response
 
     # ------------------------------------------------------------------
-    # Callback: salva azione gripper  (task_type = "gripper")
+    # Callback: salva azione gripper
     # ------------------------------------------------------------------
 
     def save_gripper_action_callback(
         self, request: GripperSrv.Request, response: GripperSrv.Response
     ):
-        """
-        Aggiunge un'azione gripper alla sequenza di task.
-
-        Campi della request (GripperSrv = ur_msgs/GripperCommand):
-          request.command      → "open" | "close"
-          request.gripper_type → "rg2" | "softhand" | "auto"
-        """
         command      = request.command.strip().lower()
-        gripper_type = getattr(request, 'gripper_type', 'auto').strip().lower()
+        gripper_type = request.gripper_type.strip().lower() \
+                       if request.gripper_type else "auto"
+        position     = float(request.position)
 
-        valid_commands = ("open", "close")
+        # Validazione comando
+        valid_commands = ("open", "close", "move")
         if command not in valid_commands:
             response.success = False
             response.message = (
-                f"Invalid command '{command}'. Must be one of {valid_commands}."
+                f"Comando '{command}' non valido. "
+                f"Usa: {valid_commands}."
             )
             self.get_logger().error(response.message)
             return response
 
+        # Validazione position solo per "move"
+        if command == "move":
+            if not (0.0 <= position <= 1.0):
+                response.success = False
+                response.message = (
+                    f"position={position:.3f} fuori range [0.0, 1.0] "
+                    "per comando 'move'."
+                )
+                self.get_logger().error(response.message)
+                return response
+
         gripper_data = {
-            "task_type":    "gripper",    # <-- campo discriminante per l'executor
+            "task_type":    "gripper",
             "command":      command,
+            "position":     position,   # salvato sempre; ignorato per open/close
             "gripper_type": gripper_type
         }
 
         self.all_poses.append(gripper_data)
         self._save_poses_to_file()
 
+        pos_info = (
+            f"position={position:.3f}" if command == "move"
+            else command
+        )
         response.success = True
         response.message = (
-            f"Saved gripper action: {command} ({gripper_type}). "
+            f"Saved gripper action: {pos_info} ({gripper_type}). "
             f"Total entries: {len(self.all_poses)}."
         )
         self.get_logger().info(response.message)
         return response
 
     # ------------------------------------------------------------------
-    # Callback: azzera tutte le pose
+    # Callback: azzera tutto
     # ------------------------------------------------------------------
 
     def clear_poses_callback(
@@ -221,29 +213,284 @@ class PoseSaverNode(Node):
             with open(self.json_file_path, 'w') as f:
                 json.dump([], f)
             response.success = True
-            response.message = "All saved poses/actions have been cleared."
+            response.message = "All entries cleared."
             self.get_logger().info(response.message)
         except Exception as e:
             response.success = False
-            response.message = f"Failed to clear poses: {e}"
+            response.message = f"Failed to clear: {e}"
             self.get_logger().error(response.message)
         return response
 
 
 def main(args=None):
     rclpy.init(args=args)
-    pose_saver_node = PoseSaverNode()
+    node = PoseSaverNode()
     try:
-        rclpy.spin(pose_saver_node)
+        rclpy.spin(node)
     except KeyboardInterrupt:
         pass
     finally:
-        pose_saver_node.destroy_node()
+        node.destroy_node()
         rclpy.shutdown()
 
 
 if __name__ == '__main__':
     main()
+
+
+
+
+
+
+
+
+
+# from urllib3 import request
+# import rclpy
+# from rclpy.node import Node
+# import json
+# import os
+
+# import tf2_ros
+# from tf2_ros import TransformException
+# from tf2_ros.buffer import Buffer
+# from tf2_ros.transform_listener import TransformListener
+
+# from ur_msgs.srv import SavePose
+# from ur_msgs.srv import GripperCommand as GripperSrv  # <-- aggiunto
+# from std_srvs.srv import Trigger
+
+
+# class PoseSaverNode(Node):
+#     def __init__(self):
+#         super().__init__('pose_saver_node')
+#         self.get_logger().info('Pose Saver Node Started.')
+
+#         self.tf_buffer = Buffer()
+#         self.tf_listener = TransformListener(self.tf_buffer, self)
+#         self.get_logger().info('TF2 Buffer and Listener initialized.')
+
+#         self.base_frame = 'base_link'
+#         self.end_effector_frame = 'tool0'
+
+#         self.all_poses = []
+
+#         workspace_dir = os.path.expanduser('~/ros2_ws/src')
+#         task_result_dir = os.path.join(workspace_dir, 'task_result')
+#         os.makedirs(task_result_dir, exist_ok=True)
+#         self.json_file_path = os.path.join(task_result_dir, 'robot_poses_ws.json')
+#         self.get_logger().info(f"Saving poses to: {self.json_file_path}")
+
+#         self._load_poses()
+
+#         # --- Servizio per salvare una posa robot ---
+#         self.save_pose_service = self.create_service(
+#             SavePose,
+#             'save_pose',
+#             self.save_pose_callback
+#         )
+#         self.get_logger().info('Service /save_pose created.')
+
+#         # --- Servizio per salvare un'azione gripper ---
+#         # Riusa GripperSrv (command + gripper_type) come tipo di richiesta:
+#         # request.command   → "open" | "close"
+#         # request.gripper_type → "rg2" | "softhand" | "auto"
+#         self.save_gripper_service = self.create_service(
+#             GripperSrv,
+#             'save_gripper_action',
+#             self.save_gripper_action_callback
+#         )
+#         self.get_logger().info('Service /save_gripper_action created.')
+
+#         # --- Servizio per pulire tutte le pose ---
+#         self.clear_poses_service = self.create_service(
+#             Trigger,
+#             'clear_saved_poses',
+#             self.clear_poses_callback
+#         )
+#         self.get_logger().info('Service /clear_saved_poses created.')
+
+#     # ------------------------------------------------------------------
+#     # Caricamento / salvataggio file JSON
+#     # ------------------------------------------------------------------
+
+#     def _load_poses(self):
+#         try:
+#             if os.path.exists(self.json_file_path):
+#                 with open(self.json_file_path, 'r') as f:
+#                     self.all_poses = json.load(f)
+#                 self.get_logger().info(
+#                     f"Loaded {len(self.all_poses)} entries from {self.json_file_path}"
+#                 )
+#         except Exception as e:
+#             self.get_logger().error(f"Failed to load poses: {e}")
+
+#     def _save_poses_to_file(self):
+#         try:
+#             os.makedirs(os.path.dirname(self.json_file_path), exist_ok=True)
+#             with open(self.json_file_path, 'w') as f:
+#                 json.dump(self.all_poses, f, indent=4)
+#             self.get_logger().info(
+#                 f"Saved {len(self.all_poses)} entries to file."
+#             )
+#         except Exception as e:
+#             self.get_logger().error(f"Failed to save poses to file: {e}")
+
+#     # ------------------------------------------------------------------
+#     # Callback: salva posa robot  (task_type = "move")
+#     # ------------------------------------------------------------------
+
+#     def save_pose_callback(self, request: SavePose.Request, response: SavePose.Response):
+#         target_frame = self.end_effector_frame
+#         source_frame = ""
+#         pose_type = ""
+
+#         if request.save_mode == 0:
+#             pose_type = "absolute"
+#             source_frame = self.base_frame
+#         elif request.save_mode == 1:
+#             pose_type = "relative"
+#             source_frame = "camera_color_optical_frame"
+#         elif request.save_mode == 2:
+#             pose_type = "relative"
+#             source_frame = request.reference_frame
+#             if not source_frame:
+#                 response.success = False
+#                 response.message = (
+#                     "ERROR: save_mode=2 (ARUCO) requires a valid reference_frame."
+#                 )
+#                 self.get_logger().error(response.message)
+#                 return response
+#         else:
+#             response.success = False
+#             response.message = (
+#                 f"ERROR: Invalid save_mode={request.save_mode}. Must be 0, 1, or 2."
+#             )
+#             self.get_logger().error(response.message)
+#             return response
+
+#         try:
+#             now = rclpy.time.Time()
+#             transform_stamped = self.tf_buffer.lookup_transform(
+#                 source_frame,
+#                 target_frame,
+#                 now,
+#                 timeout=rclpy.duration.Duration(seconds=3.0)
+#             )
+
+#             t = transform_stamped.transform.translation
+#             r = transform_stamped.transform.rotation
+
+#             pose_data = {
+#                 "task_type": "move",          # <-- campo discriminante per l'executor
+#                 "task_name": request.task_name,
+#                 "type": pose_type,
+#                 "source_frame": source_frame,
+#                 "target_frame": target_frame,
+#                 "transform": {
+#                     "translation": {"x": t.x, "y": t.y, "z": t.z},
+#                     "rotation":    {"x": r.x, "y": r.y, "z": r.z, "w": r.w}
+#                 }
+#             }
+
+#             self.all_poses.append(pose_data)
+#             self._save_poses_to_file()
+
+#             response.success = True
+#             response.message = (
+#                 f"Saved pose '{request.task_name}' "
+#                 f"({pose_type}: {target_frame} w.r.t. {source_frame})."
+#             )
+#             self.get_logger().info(response.message)
+
+#         except TransformException as ex:
+#             response.success = False
+#             response.message = (
+#                 f"Could not transform '{target_frame}' to '{source_frame}': {ex}"
+#             )
+#             self.get_logger().error(response.message)
+
+#         return response
+
+#     # ------------------------------------------------------------------
+#     # Callback: salva azione gripper  (task_type = "gripper")
+#     # ------------------------------------------------------------------
+
+#     def save_gripper_action_callback(
+#         self, request: GripperSrv.Request, response: GripperSrv.Response
+#     ):
+#         """
+#         Aggiunge un'azione gripper alla sequenza di task.
+
+#         Campi della request (GripperSrv = ur_msgs/GripperCommand):
+#           request.command      → "open" | "close"
+#           request.gripper_type → "rg2" | "softhand" | "auto"
+#         """
+#         command      = request.command.strip().lower()
+#         gripper_type = getattr(request, 'gripper_type', 'auto').strip().lower()
+
+#         valid_commands = ("open", "close")
+#         if command not in valid_commands:
+#             response.success = False
+#             response.message = (
+#                 f"Invalid command '{command}'. Must be one of {valid_commands}."
+#             )
+#             self.get_logger().error(response.message)
+#             return response
+
+#         gripper_data = {
+#             "task_type":    "gripper",    # <-- campo discriminante per l'executor
+#             "command":      command,
+#             "gripper_type": gripper_type
+#         }
+
+#         self.all_poses.append(gripper_data)
+#         self._save_poses_to_file()
+
+#         response.success = True
+#         response.message = (
+#             f"Saved gripper action: {command} ({gripper_type}). "
+#             f"Total entries: {len(self.all_poses)}."
+#         )
+#         self.get_logger().info(response.message)
+#         return response
+
+#     # ------------------------------------------------------------------
+#     # Callback: azzera tutte le pose
+#     # ------------------------------------------------------------------
+
+#     def clear_poses_callback(
+#         self, request: Trigger.Request, response: Trigger.Response
+#     ):
+#         self.all_poses = []
+#         try:
+#             os.makedirs(os.path.dirname(self.json_file_path), exist_ok=True)
+#             with open(self.json_file_path, 'w') as f:
+#                 json.dump([], f)
+#             response.success = True
+#             response.message = "All saved poses/actions have been cleared."
+#             self.get_logger().info(response.message)
+#         except Exception as e:
+#             response.success = False
+#             response.message = f"Failed to clear poses: {e}"
+#             self.get_logger().error(response.message)
+#         return response
+
+
+# def main(args=None):
+#     rclpy.init(args=args)
+#     pose_saver_node = PoseSaverNode()
+#     try:
+#         rclpy.spin(pose_saver_node)
+#     except KeyboardInterrupt:
+#         pass
+#     finally:
+#         pose_saver_node.destroy_node()
+#         rclpy.shutdown()
+
+
+# if __name__ == '__main__':
+#     main()
 
 
 
