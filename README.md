@@ -208,6 +208,8 @@ Aggiunto i servizi al launcher dell ur
 ```
 
 
+ros2 launch ur_onrobot_control start_robot.launch.py ur_type:=ur10e onrobot_type:=rg2 robot_ip:=127.0.0.1  use_fake_hardware:=true 
+
 
 
 
