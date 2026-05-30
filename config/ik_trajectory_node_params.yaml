@@ -16,8 +16,8 @@
       - "wrist_3_joint"
 
     # ----- Action server -----
-    action_server_name: "/scaled_joint_trajectory_controller/follow_joint_trajectory"
-
+    # action_server_name: "/scaled_joint_trajectory_controller/follow_joint_trajectory"
+    action_server_name: "/joint_trajectory_controller/follow_joint_trajectory"
     # ----- Topics -----
     pose_topic:         "/target_cartesian_pose"
     joint_states_topic: "/joint_states"

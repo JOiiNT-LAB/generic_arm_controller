@@ -108,78 +108,6 @@ per eseguire tutti i task
 
 
 
-per provarlo (IN SIMULAZIONE!!) usare il commando
-```
-
-ros2 topic pub /target_cartesian_pose geometry_msgs/PoseStamped "header:
-  frame_id: 'base_link'
-pose:
-  position:
-    x: 0.8
-    y: 0.8
-    z: 0.9
-  orientation:
-    x: 0.0
-    y: 0.0
-    z: 0.0
-    w: 1.0"
-```
-
-Implementeazine di un nodo che generi le traiettorie partendo da questo ik_node
-
-```
-ros2 topic pub /target_robot_pose geometry_msgs/PoseStamped "{header: {frame_id: base_link}, pose: {position: {x: 0.5, y: 0.5, z: 0.9}, orientation: {x: 0.0, y: 0.0, z: 0.0, w: 1.0}}}"
-```
-```
-ros2 topic pub /target_cartesian_pose geometry_msgs/PoseStamped "header:
-  frame_id: 'base_link'
-pose:
-  position:
-    x: 0.70  # Avanti
-    y: 0.0
-    z: 0.45  # Altezza media
-  orientation:
-    x: 0.0
-    y: 0.0
-    z: 0.0
-    w: 1.0" --once
-```
-
-```
-
-ros2 topic pub /target_cartesian_pose geometry_msgs/PoseStamped "header:
-  frame_id: 'base_link'
-pose:
-  position:
-    x: 0.7  # Avanti
-    y: 0.3
-    z: 0.45  # Altezza media
-  orientation:
-    x: 0.0
-    y: 0.0
-    z: 0.0
-    w: 1.0" --once
-```
-
-
-
-```
-
-ros2 topic pub /target_cartesian_pose geometry_msgs/PoseStamped "header:
-  frame_id: 'base_link'
-pose:
-  position:
-    x: 0.70
-    y: -0.50
-    z: 0.65
-  orientation:
-    x: 0.5  # Combinazione Roll/Yaw estrema
-    y: 0.5
-    z: 0.5
-    w: -0.5" --once
-```
-
-
 
 ### SOFTHAND
 Segui questo info  per installare la mano
@@ -211,13 +139,21 @@ Aggiunto i servizi al launcher dell ur
 ros2 launch ur_onrobot_control start_robot.launch.py ur_type:=ur10e onrobot_type:=rg2 robot_ip:=127.0.0.1  use_fake_hardware:=true 
 
 
+lanci il comando con robot
+ros2 launch ur_simulation_gazebo ur_sim_control.launch.py     description_package:=tools_config     description_file:=ur_camera_gripper.urdf.xacro 
+
 
 
 
 
 ### Centrealizzazione
 Ho inserito tutto i commandi anche di linguaggio naturale in unico launcher, Questo lancia: LLM app + FK + IK + Task executor + tutto il sistema 
+
+
+
 # Avvia senza dispositivi (simulazione)
+
+
 ros2 launch ur10e_ros2 robot_vision_ik_traj_setup.launch.py
 
 # Avvia con realsense
@@ -235,3 +171,119 @@ ros2 run voice_command_interpreter nl_savepose_parser
 Chiudi la mano
 Apri la mano
 Esegui i task
+
+
+
+ESEGUI UNA SEQUENZA di presa dell'oggetto
+ogni volta che ha raggiunto la posizone salva la psoizone su save pose.
+per salvare la posizone usa 
+ros2 run llm_app chatlive 
+
+che salva la ryoutin nel json.
+scrivi save pose per salva al posizine del robot
+scrive open/close il gripper
+scrive salva la posizoen del girpper per salvare lo srtato in base al flusso logica.
+
+manda la posizione come topic 
+ros2 topic pub /target_cartesian_pose geometry_msgs/PoseStamped "header:
+  frame_id: 'base_link'
+pose:
+  position:
+    x: 0.70
+    y: 0.0
+    z: 0.55
+  orientation:
+    x: 0.0
+    y: 1.0
+    z: 0.0
+    w: 0.0" --once
+
+ros2 topic pub /target_cartesian_pose geometry_msgs/PoseStamped "header:
+  frame_id: 'base_link'
+pose:
+  position:
+    x: 0.70
+    y: 0.0
+    z: 0.25
+  orientation:
+    x: 0.0
+    y: 1.0
+    z: 0.0
+    w: 0.0" --once
+
+ros2 topic pub /target_cartesian_pose geometry_msgs/PoseStamped "header:
+  frame_id: 'base_link'
+pose:
+  position:
+    x: 0.75
+    y: 0.10
+    z: 0.20
+  orientation:
+    x: 0.0
+    y: 1.0
+    z: 0.0
+    w: 0.0" --once
+ros2 topic pub /target_cartesian_pose geometry_msgs/PoseStamped "header:
+  frame_id: 'base_link'
+pose:
+  position:
+    x: 0.45
+    y: 0.0
+    z: 0.60
+  orientation:
+    x: 0.0
+    y: 1.0
+    z: 0.0
+    w: 0.0" --once
+
+ros2 topic pub /target_cartesian_pose geometry_msgs/PoseStamped "header:
+  frame_id: 'base_link'
+pose:
+  position:
+    x: 0.50
+    y: -0.45
+    z: 0.45
+  orientation:
+    x: 0.0
+    y: 1.0
+    z: 0.0
+    w: 0.0" --once
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+sqpn marker in gazxebo
+
+
+ros2 run gazebo_ros spawn_entity.py \
+  -entity marker_id_0 \
+  -stdin \
+  -x 0.7 -y 0.0 -z 0.0 \
+  <<EOF
+<?xml version="1.0" ?>
+<sdf version="1.5">
+  <model name="marker_id_0">
+    <link name="link">
+      <visual name="visual">
+        <geometry><box><size>0.1 0.1 0.1</size></box></geometry>
+        <material>
+          <ambient>0 0 1 1</ambient> </material>
+      </visual>
+      <collision name="collision">
+        <geometry><box><size>0.1 0.1 0.1</size></box></geometry>
+      </collision>
+    </link>
+  </model>
+</sdf>
+EOF

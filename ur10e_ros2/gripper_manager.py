@@ -2,12 +2,13 @@ import rclpy
 from rclpy.node import Node
 from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
+from rclpy.action import ActionClient  # <--- NUOVO: Import per gestire l'azione Robotiq
 
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 from ur_msgs.srv import GripperCommand as GripperSrv
+from control_msgs.action import GripperCommand as GripperAction # <--- NUOVO: Tipo di azione ufficiale
 
-# FIX 3: import QB protetto — il nodo parte anche senza il pacchetto QB
-# installato (utile quando enable_qb:=false).
+# FIX 3: import QB protetto
 try:
     from qb_softhand_industry_srvs.srv import SetCommand
     QB_AVAILABLE = True
@@ -19,6 +20,10 @@ RG2_MAX_WIDTH_M  = 0.085
 SOFTHAND_MIN_POS = 0
 SOFTHAND_MAX_POS = 3500
 
+# NUOVO: Limiti cinematici Robotiq 2F-85 in Gazebo/ROS 2 Control
+ROBOTIQ_MIN_POS  = 0.0  # Aperta
+ROBOTIQ_MAX_POS  = 0.8  # Chiusa completamente
+
 
 class GripperManager(Node):
 
@@ -26,8 +31,6 @@ class GripperManager(Node):
         super().__init__('gripper_manager')
 
         # FIX DEADLOCK: ReentrantCallbackGroup + MultiThreadedExecutor
-        # permettono al nodo di processare altri callback mentre
-        # _handle_softhand attende il future, evitando il deadlock.
         self.cb_group = ReentrantCallbackGroup()
 
         # --- RG2 publisher ---
@@ -48,9 +51,17 @@ class GripperManager(Node):
             self.get_logger().info('SoftHand client created.')
         else:
             self.get_logger().warn(
-                'qb_softhand_industry_srvs non trovato. '
-                'SoftHand disabilitato.'
+                'qb_softhand_industry_srvs non trovato. SoftHand disabilitato.'
             )
+
+        # --- NUOVO: Robotiq Action Client ---
+        self.robotiq_client = ActionClient(
+            self,
+            GripperAction,
+            '/robotiq_gripper_controller/gripper_cmd',
+            callback_group=self.cb_group
+        )
+        self.get_logger().info('Robotiq Action Client inizializzato.')
 
         # --- Servizio ROS ---
         self.service = self.create_service(
@@ -93,6 +104,8 @@ class GripperManager(Node):
             return self._handle_rg2(position, response)
         elif gripper_type == 'softhand':
             return self._handle_softhand(position, response)
+        elif gripper_type == 'robotiq':
+            return self._handle_robotiq(position, response) # <--- NUOVO indirizzamento
         else:
             response.success = False
             response.message = f"Tipo gripper sconosciuto: '{gripper_type}'"
@@ -105,9 +118,9 @@ class GripperManager(Node):
 
     def _resolve_position(self, cmd: str, raw_position: float):
         if cmd == 'open':
-            return 1.0
+            return 1.0  # Convenzione logica: 1.0 = Completamente Aperto
         elif cmd == 'close':
-            return 0.0
+            return 0.0  # Convenzione logica: 0.0 = Completamente Chiuso
         elif cmd == 'move':
             return max(0.0, min(1.0, float(raw_position)))
         return None
@@ -140,10 +153,6 @@ class GripperManager(Node):
 
     # =========================================================
     # SOFTHAND
-    # FIX DEADLOCK: non usiamo più rclpy.spin_until_future_complete(self, ...)
-    # che blocca lo spin dall'interno di un callback causando deadlock.
-    # Con ReentrantCallbackGroup + MultiThreadedExecutor possiamo usare
-    # il future direttamente con un loop non bloccante.
     # =========================================================
 
     def _handle_softhand(self, position: float, response):
@@ -170,9 +179,6 @@ class GripperManager(Node):
 
         future = self.softhand_client.call_async(req)
 
-        # Attesa non bloccante: cediamo il controllo ogni 10 ms.
-        # Questo funziona perché siamo in un ReentrantCallbackGroup
-        # con MultiThreadedExecutor — altri callback continuano a girare.
         import time
         timeout = 5.0
         start   = time.time()
@@ -180,9 +186,7 @@ class GripperManager(Node):
             time.sleep(0.01)
             if time.time() - start > timeout:
                 response.success = False
-                response.message = (
-                    f'Timeout SoftHand ({timeout:.1f} s).'
-                )
+                response.message = f'Timeout SoftHand ({timeout:.1f} s).'
                 self.get_logger().warn(response.message)
                 return response
 
@@ -200,10 +204,71 @@ class GripperManager(Node):
         return response
 
     # =========================================================
-    # AUTO SELECT
+    # NUOVO: ROBOTIQ (Gestione asincrona Action Server non bloccante)
+    # =========================================================
+
+    def _handle_robotiq(self, position: float, response):
+        if not self.robotiq_client.wait_for_server(timeout_sec=2.0):
+            response.success = False
+            response.message = 'Action server della Robotiq non disponibile!'
+            self.get_logger().error(response.message)
+            return response
+
+        # Mappatura della posizione:
+        # La tua richiesta logica ragiona: 1.0 = Aperto, 0.0 = Chiuso.
+        # Il GripperCommand dell'action server ragiona: 0.0 = Aperto, 0.8 = Chiuso.
+        # Invertiamo la posizione scalando sul range corretto:
+        robotiq_pos = ROBOTIQ_MAX_POS - position * (ROBOTIQ_MAX_POS - ROBOTIQ_MIN_POS)
+
+        goal_msg = GripperAction.Goal()
+        goal_msg.command.position = robotiq_pos
+        goal_msg.command.max_effort = 100.0  # Forza di presa
+
+        self.get_logger().info(f'[Robotiq] Invio goal posizione: {robotiq_pos:.3f}')
+        
+        # Inviamo la richiesta del goal asincrona
+        send_goal_future = self.robotiq_client.send_goal_async(goal_msg)
+
+        import time
+        timeout = 5.0
+        start = time.time()
+
+        # 1. Attesa accettazione goal dal server
+        while not send_goal_future.done():
+            time.sleep(0.01)
+            if time.time() - start > timeout:
+                response.success = False
+                response.message = 'Timeout accettazione goal Robotiq.'
+                return response
+
+        goal_handle = send_goal_future.result()
+        if not goal_handle.accepted:
+            response.success = False
+            response.message = 'Goal Robotiq rifiutato dall\'action server.'
+            return response
+
+        # 2. Attesa del risultato finale dell'azione (movimento completato)
+        get_result_future = goal_handle.get_result_async()
+        while not get_result_future.done():
+            time.sleep(0.01)
+            if time.time() - start > timeout:
+                response.success = False
+                response.message = 'Timeout completamento movimento Robotiq.'
+                return response
+
+        self.get_logger().info(f'[Robotiq] Movimento completato con successo.')
+        response.success = True
+        response.message = f'Robotiq posizionata a {robotiq_pos:.2f} (Input logico: {position:.2f})'
+        return response
+
+    # =========================================================
+    # AUTO SELECT (Ottimizzato per rilevare la Robotiq)
     # =========================================================
 
     def _auto_select(self) -> str:
+        # Se l'action server della Robotiq è visibile sulla rete ROS 2, la usa come scelta primaria
+        if self.robotiq_client.server_is_ready():
+            return 'robotiq'
         return 'rg2'
 
 
@@ -211,8 +276,6 @@ def main():
     rclpy.init()
     node = GripperManager()
 
-    # FIX DEADLOCK: MultiThreadedExecutor è obbligatorio quando si usa
-    # ReentrantCallbackGroup con wait non bloccante inside callback.
     executor = MultiThreadedExecutor()
     executor.add_node(node)
 
@@ -228,239 +291,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-# import rclpy
-# from rclpy.node import Node
-
-# from ur_msgs.srv import GripperCommand as GripperSrv
-# from qb_softhand_industry_srvs.srv import SetCommand
-
-# from control_msgs.msg import GripperCommand as RG2Msg
-# from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
-
-# class GripperManager(Node):
-
-#     def __init__(self):
-#         super().__init__('gripper_manager')
-
-#         # =========================
-#         # RG2 publisher
-#         # =========================
-#         self.rg2_pub = self.create_publisher(
-#             JointTrajectory,
-#             '/finger_width_trajectory_controller/joint_trajectory',
-#             10
-#         )
-#         # =========================
-#         # SoftHand client
-#         # =========================
-
-#         self.softhand_client = self.create_client(
-#             SetCommand,
-#             '/qb_softhand_industry_communication_handler/set_command'
-#         )
-
-#         # =========================
-#         # UNICO SERVICE ROS
-#         # =========================
-#         self.service = self.create_service(
-#             GripperSrv,
-#             '/gripper/command',
-#             self.gripper_callback
-#         )
-
-#         self.get_logger().info("GripperManager READY")
-
-#     # =========================================================
-#     # MAIN CALLBACK
-#     # =========================================================
-#     def gripper_callback(self, request, response):
-
-#         cmd = request.command.lower()
-
-#         # opzionale: puoi estendere il srv con gripper_type
-#         gripper_type = getattr(request, "gripper_type", "auto").lower()
-
-#         self.get_logger().info(
-#             f"Gripper request → cmd={cmd}, type={gripper_type}"
-#         )
-
-#         # =========================
-#         # AUTO ROUTING
-#         # =========================
-#         if gripper_type == "auto":
-#             gripper_type = self._auto_select()
-
-#         # =========================
-#         # RG2
-#         # =========================
-#         if gripper_type == "rg2":
-#             return self._handle_rg2(cmd, response)
-
-#         # =========================
-#         # SOFTHAND
-#         # =========================
-#         elif gripper_type == "softhand":
-#             return self._handle_softhand(cmd, response)
-
-#         else:
-#             response.success = False
-#             response.message = f"Unknown gripper type: {gripper_type}"
-#             return response
-        
-
-#     def _handle_rg2(self, cmd, response):
-
-#         msg = JointTrajectory()
-#         msg.joint_names = ['finger_width']
-
-#         point = JointTrajectoryPoint()
-
-#         # -------------------------
-#         # NORMALIZED POSITION
-#         # -------------------------
-#         position = None
-
-#         cmd = cmd.lower()
-
-#         if cmd == "open":
-#             position = 1.0
-#         elif cmd == "close":
-#             position = 0.0
-#         else:
-#             response.success = False
-#             response.message = f"Invalid command: {cmd}"
-#             return response
-
-#         # clamp
-#         position = max(0.0, min(1.0, position))
-
-#         # mapping reale RG2
-#         point.positions = [0.085 * position]
-
-#         point.time_from_start.sec = 1
-#         msg.points = [point]
-
-#         self.rg2_pub.publish(msg)
-
-#         self.get_logger().info(f"[RG2] position={position:.2f}")
-
-#         response.success = True
-#         response.message = f"RG2 executed at {position:.2f}"
-#         return response
-    
-#     def _handle_softhand(self, cmd, response):
-
-#         if not self.softhand_client.service_is_ready():
-#             response.success = False
-#             response.message = "SoftHand service not available"
-#             return response
-
-#         POSITION_MAP = {
-#             "open": 0,
-#             "close": 3500
-#         }
-
-#         cmd = cmd.lower()
-
-#         if cmd not in POSITION_MAP:
-#             response.success = False
-#             response.message = f"Invalid command: {cmd}"
-#             return response
-
-#         position = POSITION_MAP[cmd]
-
-#         req = self.softhand_client.srv_type.Request()
-#         req.max_repeats = 1
-#         req.set_commands = True
-#         req.position_command = position
-
-#         future = self.softhand_client.call_async(req)
-#         rclpy.spin_until_future_complete(self, future)
-
-#         result = future.result()
-
-#         response.success = True
-#         response.message = result.message if result else f"SoftHand {cmd} executed"
-#         return response
-#     # =========================================================
-#     # SIMPLE POLICY
-#     # =========================================================
-#     def _auto_select(self):
-#         """
-#         Default policy:
-#         - prefer RG2 if system is active
-#         - fallback SoftHand
-#         """
-#         return "rg2"
-
-
-# def main():
-#     rclpy.init()
-#     node = GripperManager()
-#     rclpy.spin(node)
-#     node.destroy_node()
-#     rclpy.shutdown()
-
-
-# if __name__ == '__main__':
-#     main()
