@@ -20,11 +20,17 @@ class PoseSaverNode(Node):
         super().__init__('pose_saver_node')
         self.get_logger().info('Pose Saver Node Started.')
 
+        # Declare ROS2 parameters for flexibility across different robots
+        self.declare_parameter('base_frame', 'base_link')
+        self.declare_parameter('end_effector_frame', 'tool0')
+
+        # Read parameters from ROS2 launch configuration
+        self.base_frame = self.get_parameter('base_frame').value
+        self.end_effector_frame = self.get_parameter('end_effector_frame').value
+
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
 
-        self.base_frame         = 'base_link'
-        self.end_effector_frame = 'tool0'
         self.all_poses          = []
 
         # Manteniamo la tua cartella e il tuo file originale (L'esecutore leggerà sempre questo!)

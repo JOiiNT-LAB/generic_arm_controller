@@ -4,7 +4,7 @@ from sensor_msgs.msg import JointState
 from geometry_msgs.msg import PoseStamped
 import pinocchio as pin
 
-from ur10e_ros2.urdf_loader import build_pinocchio_urdf
+from generic_arm_controller.urdf_loader import build_pinocchio_urdf
 
 
 class FKNode(Node):

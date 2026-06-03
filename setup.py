@@ -33,13 +33,10 @@ setup(
     entry_points={
         'console_scripts': [
             f'fk_node = {package_name}.fk_node:main',
-            f'marker_pose_transformer_node = {package_name}.marker_pose_transformer_node:main',
-            f'ur10e_ik_trajectory_node = {package_name}.ur10e_ik_trajectory_node:main',
+            f'ik_trajectory_node = {package_name}.ik_trajectory_node:main',
             f'task_saving_node_complete = {package_name}.task_saving_node_complete:main',
             f'task_executor_node_complete = {package_name}.task_executor_node_complete:main',
-            f'ik_trajectory_node = {package_name}.ik_trajectory_node:main',  # ← aggiungi questa
             f'gripper_node = {package_name}.gripper_manager:main',
-
         ],
     },
 )
