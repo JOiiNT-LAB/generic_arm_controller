@@ -28,6 +28,11 @@ class TaskExecutorNode(Node):
         super().__init__('task_executor_node')
         self.get_logger().info('Task Executor Node Started.')
 
+        # Parametri ROS2 per i frame TF
+        self.declare_parameter('target_frame', 'base_link')
+        self.target_frame = self.get_parameter('target_frame').value
+        self.get_logger().info(f"Using target frame: {self.target_frame}")
+
         self.reentrant_callback_group = ReentrantCallbackGroup()
 
         # TF2
@@ -256,7 +261,7 @@ class TaskExecutorNode(Node):
             response.message = "Impossibile caricare le pose."
             return response
 
-        target_frame_for_ik = 'base_link'
+        target_frame_for_ik = self.target_frame
         success_count = 0
         fail_count    = 0
 

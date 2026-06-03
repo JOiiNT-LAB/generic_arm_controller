@@ -1,9 +1,9 @@
 <?xml version="1.0"?>
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
-  <name>ur10e_ros2</name>
+  <name>generic_arm_controller</name>
   <version>0.0.0</version>
-  <description>ROS2 package for controlling and interacting with the UR10e robot, including FK, IK, object grasping, and trajectory planning.</description>
+  <description>Generic ROS2 package for controlling and manipulating robotic arms (UR, Franka, KUKA, etc.), including FK, IK, object grasping, and trajectory planning.</description>
   <maintainer email="leop94@live.com">arise</maintainer>
   <license>Apache-2.0</license>
 

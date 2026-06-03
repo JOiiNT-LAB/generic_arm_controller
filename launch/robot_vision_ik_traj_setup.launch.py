@@ -18,7 +18,7 @@ import yaml
 # ---------------------------------------------------------------------------
 def load_calibration_from_yaml(context):
     calibration_file_path = PathJoinSubstitution([
-        FindPackageShare('ur10e_ros2'),
+        FindPackageShare('generic_arm_controller'),
         'calibration_results',
         'hand_eye_transform.yaml'
     ]).perform(context)
@@ -78,6 +78,11 @@ def generate_launch_description():
         default_value='true',  # Cambia a 'false' se vuoi disabilitare la pinza di default
         description='Enable Robotiq gripper'
     )
+    target_frame_arg = DeclareLaunchArgument(
+        'target_frame',
+        default_value='base_link',
+        description='Target TF frame for IK trajectory execution'
+    )
 
     # -----------------------------------------------------------------------
     # Nodi hardware / TF — partono subito
@@ -86,7 +91,7 @@ def generate_launch_description():
     static_tf_node = OpaqueFunction(function=load_calibration_from_yaml)
 
     fk_node = Node(
-        package='ur10e_ros2',
+        package='generic_arm_controller',
         executable='fk_node',
         name='fk_node',
         output='screen',
@@ -96,14 +101,14 @@ def generate_launch_description():
     )
 
     ik_node = Node(
-        package='ur10e_ros2',
+        package='generic_arm_controller',
         executable='ik_trajectory_node',
         name='ik_trajectory_node',
         output='screen',
         respawn=False,
         parameters=[
             PathJoinSubstitution([
-                FindPackageShare('ur10e_ros2'),
+                FindPackageShare('generic_arm_controller'),
                 'config',
                 'ik_trajectory_node_params.yaml',
             ])
@@ -120,7 +125,7 @@ def generate_launch_description():
     # con un try/except nel codice Python (vedi gripper_manager.py fix sotto).
     # -----------------------------------------------------------------------
     gripper_node = Node(
-        package='ur10e_ros2',
+        package='generic_arm_controller',
         executable='gripper_node',
         name='gripper_node',
         output='screen',
@@ -135,15 +140,20 @@ def generate_launch_description():
     # -----------------------------------------------------------------------
 
     task_executor_node = Node(
-        package='ur10e_ros2',
+        package='generic_arm_controller',
         executable='task_executor_node_complete',
         name='task_executor_node_complete',
         output='screen',
         respawn=False,
+        parameters=[
+            {
+                'target_frame': LaunchConfiguration('target_frame'),
+            }
+        ],
     )
 
     task_saving_node = Node(
-        package='ur10e_ros2',
+        package='generic_arm_controller',
         executable='task_saving_node_complete',
         name='task_saving_node_complete',
         output='screen',
@@ -237,6 +247,7 @@ def generate_launch_description():
         enable_realsense_arg,
         enable_qb_arg,
         enable_robotiq_gripper_arg,
+        target_frame_arg,
         # 1. TF statica calibrazione (non ha dipendenze)
         static_tf_node,
 

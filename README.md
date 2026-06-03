@@ -1,12 +1,12 @@
-# UR10e ROS2 - Sistema di Controllo Integrato
+# Generic Arm Controller - Sistema Modulare di Controllo Robotico
 
 ## 📋 Panoramica
 
-Questo pacchetto fornisce un sistema completo di controllo per il robot UR10e con integrazione di:
-- **Controllo del braccio robotico** UR10e con cinematica diretta/inversa
+Questo pacchetto fornisce un sistema modulare e generico di controllo per bracci robotici (UR, Franka, KUKA, ecc.) con integrazione di:
+- **Controllo del braccio robotico** con cinematica diretta/inversa
 - **Visione artificiale** tramite RealSense RGB-D
 - **Riconoscimento ArUco** per il picking dinamico
-- **Gripper** (QB Softhand Industry o Robotiq)
+- **Gripper** (QB Softhand Industry, Robotiq, RG2, ecc.)
 - **Sistema di task** per salvare ed eseguire sequenze di movimenti
 - **Interfaccia conversazionale** con LLM per comandi in linguaggio naturale
 
@@ -45,25 +45,25 @@ Questo pacchetto fornisce un sistema completo di controllo per il robot UR10e co
 ### Scenario 1: Simulazione Pura (senza hardware)
 
 ```bash
-ros2 launch ur10e_ros2 robot_vision_ik_traj_setup.launch.py
+ros2 launch generic_arm_controller robot_vision_ik_traj_setup.launch.py
 ```
 
 ### Scenario 2: Con RealSense
 
 ```bash
-ros2 launch ur10e_ros2 robot_vision_ik_traj_setup.launch.py enable_realsense:=true
+ros2 launch generic_arm_controller robot_vision_ik_traj_setup.launch.py enable_realsense:=true
 ```
 
 ### Scenario 3: Con QB Softhand
 
 ```bash
-ros2 launch ur10e_ros2 robot_vision_ik_traj_setup.launch.py enable_qb:=true
+ros2 launch generic_arm_controller robot_vision_ik_traj_setup.launch.py enable_qb:=true
 ```
 
 ### Scenario 4: Sistema Completo
 
 ```bash
-ros2 launch ur10e_ros2 robot_vision_ik_traj_setup.launch.py \
+ros2 launch generic_arm_controller robot_vision_ik_traj_setup.launch.py \
   enable_realsense:=true \
   enable_qb:=true
 ```
@@ -265,7 +265,7 @@ ros2 launch ur_robot_driver ur_control.launch.py \
 ### Step 1: Avvia il Sistema
 
 ```bash
-ros2 launch ur10e_ros2 robot_vision_ik_traj_setup.launch.py \
+ros2 launch generic_arm_controller robot_vision_ik_traj_setup.launch.py \
   enable_realsense:=true enable_qb:=true
 ```
 
@@ -317,7 +317,7 @@ Il robot eseguirà: pre-grasp → grasp → home
 ## 📁 Struttura Package
 
 ```
-ur10e_ros2/
+generic_arm_controller/
 ├── launch/
 │   └── robot_vision_ik_traj_setup.launch.py
 ├── src/

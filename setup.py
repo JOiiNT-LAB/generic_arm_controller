@@ -2,7 +2,7 @@ import os
 from glob import glob
 from setuptools import find_packages, setup
 
-package_name = 'ur10e_ros2'
+package_name = 'generic_arm_controller'
 
 setup(
     name=package_name,
@@ -27,7 +27,7 @@ setup(
     zip_safe=True,
     maintainer='Your Name',
     maintainer_email='your_email@example.com',
-    description='ROS2 package for controlling and interacting with the UR10e robot.',
+    description='Generic ROS2 package for controlling and manipulating robotic arms (UR, Franka, KUKA, etc.).',
     license='Apache-2.0',
     tests_require=['pytest'],
     entry_points={
