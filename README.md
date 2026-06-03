@@ -110,13 +110,13 @@ ros2 launch generic_arm_controller system_setup.launch.py \
 ```bash
 # Franka Panda (uses panda_link0 instead of base_link)
 ros2 launch generic_arm_controller system_setup.launch.py \
-  robot:=ur10e \
+  robot:=franka \
   target_frame:=panda_link0 \
   gripper:=robotiq
 
 # KUKA LBR (uses base instead of base_link)
 ros2 launch generic_arm_controller system_setup.launch.py \
-  robot:=ur10e \
+  robot:=kuka \
   target_frame:=base \
   gripper:=robotiq
 ```
