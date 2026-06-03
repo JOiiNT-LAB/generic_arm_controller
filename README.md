@@ -140,8 +140,7 @@ ros2 launch ur_onrobot_control start_robot.launch.py ur_type:=ur10e onrobot_type
 
 
 lanci il comando con robot
-ros2 launch ur_simulation_gazebo ur_sim_control.launch.py     description_package:=tools_config     description_file:=ur_camera_gripper.urdf.xacro 
-
+ros2 launch ur_simulation_gazebo ur_sim_control.launch.py description_package:=tools_config description_file:=ur_camera_robotiq.urdf.xacro ur_type:=ur10e
 
 
 
@@ -262,28 +261,28 @@ pose:
 
 
 
+ros2 topic pub /target_cartesian_pose geometry_msgs/PoseStamped "header:
+  frame_id: 'base_link'
+pose:
+  position:
+    x: 0.70
+    y: 0.0
+    z: 0.8
+  orientation:
+    x: 0.0
+    y: 1.0
+    z: 0.0
+    w: 0.0" --once
 
-sqpn marker in gazxebo
-
-
-ros2 run gazebo_ros spawn_entity.py \
-  -entity marker_id_0 \
-  -stdin \
-  -x 0.7 -y 0.0 -z 0.0 \
-  <<EOF
-<?xml version="1.0" ?>
-<sdf version="1.5">
-  <model name="marker_id_0">
-    <link name="link">
-      <visual name="visual">
-        <geometry><box><size>0.1 0.1 0.1</size></box></geometry>
-        <material>
-          <ambient>0 0 1 1</ambient> </material>
-      </visual>
-      <collision name="collision">
-        <geometry><box><size>0.1 0.1 0.1</size></box></geometry>
-      </collision>
-    </link>
-  </model>
-</sdf>
-EOF
+ros2 topic pub /target_cartesian_pose geometry_msgs/PoseStamped "header:
+  frame_id: 'base_link'
+pose:
+  position:
+    x: 0.70
+    y: 0.0
+    z: 0.3 
+  orientation:
+    x: 0.0
+    y: 1.0
+    z: 0.0
+    w: 0.0" --once

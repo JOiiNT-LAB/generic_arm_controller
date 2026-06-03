@@ -192,12 +192,12 @@ def generate_launch_description():
         name='aruco_single',
         output='screen',
         parameters=[{
-            'marker_size': 0.1778,
-            'marker_id': 0,
-            'camera_frame': 'camera_link',
+            'marker_size': 0.1778,                      # <-- CORRETTO: tieni il valore originale del tuo SDF
+            'marker_id': 0,                             # <-- CORRETTO: l'ID del tuo marker è 0
+            'camera_frame': 'camera_color_optical_frame', # <-- FONDAMENTALE: indica il frame ottico della telecamera
             'marker_frame': 'aruco_marker',
-            'reference_frame': 'camera_link', # <--- CAMBIA DA base_link A camera_link
-            'dictionary': 10, 
+            'reference_frame': 'camera_color_optical_frame', # <-- FONDAMENTALE: allinea il riferimento al frame ottico
+            'dictionary': 10,                           # DICT_ARUCO_ORIGINAL (corretto per i marker standard di Gazebo)
         }],
         remappings=[
             ('/image', '/camera_sensor/realsense_camera/image_raw'),
