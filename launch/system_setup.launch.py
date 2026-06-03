@@ -103,7 +103,7 @@ def generate_launch_description():
             'launch/sensors',
             'realsense_sensor.launch.py',
         ]),
-        condition=IfCondition(LaunchConfiguration('enable_realsense'))
+        condition=IfCondition(LaunchConfiguration('enable_realsense') == 'true')
     )
 
     aruco_launcher = IncludeLaunchDescription(
@@ -112,7 +112,7 @@ def generate_launch_description():
             'launch/sensors',
             'aruco_sensor.launch.py',
         ]),
-        condition=IfCondition(LaunchConfiguration('enable_aruco'))
+        condition=IfCondition(LaunchConfiguration('enable_aruco') == 'true')
     )
 
     # -----------------------------------------------------------------------
