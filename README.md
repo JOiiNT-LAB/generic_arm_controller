@@ -1,203 +1,343 @@
-# ur10e_ros2 Redme provissorio -----
+# UR10e ROS2 - Sistema di Controllo Integrato
 
-# Lanciare in modo virtuale ur10e con rviz
-usiamo un robot_ip inventato 
+## 📋 Panoramica
 
+Questo pacchetto fornisce un sistema completo di controllo per il robot UR10e con integrazione di:
+- **Controllo del braccio robotico** UR10e con cinematica diretta/inversa
+- **Visione artificiale** tramite RealSense RGB-D
+- **Riconoscimento ArUco** per il picking dinamico
+- **Gripper** (QB Softhand Industry o Robotiq)
+- **Sistema di task** per salvare ed eseguire sequenze di movimenti
+- **Interfaccia conversazionale** con LLM per comandi in linguaggio naturale
 
-#con quello di traiettorie
-```
-ros2 launch ur_robot_driver ur_control.launch.py \
-    ur_type:=ur10e \
-    robot_ip:=127.0.0.1 \
-    use_fake_hardware:=true \
-    launch_rviz:=true \
-    initial_joint_controller:=scaled_joint_trajectory_controller
-```
-## commando per accendere il robot real
-```
+---
 
-ros2 launch ur_robot_driver ur_control.launch.py     ur_type:=ur10e     robot_ip:=192.168.56.100     launch_rviz:=true     joint_controller:=scaled_joint_trajectory_controller
-```
+## 🏗️ Architettura del Sistema
 
 ```
-
-### NB vai su urcap->external_control e imposta il controllo by 192.168.56.1 (il pc deve avere indirizzo di rete 192.168.56.1)
-
-
-## commando per attivare il controllo basato su traiettoria
-```
-ros2 run ur10e_ros2 ur10e_ik_trajectory_node 
-```
-## commando per mandare la posizione
-```
-
- ros2 topic pub /target_cartesian_pose geometry_msgs/msg/PoseStamped "{header: {stamp: {sec: 0, nanosec: 0}, frame_id: 'base_link'}, pose: {position: {x: -0.5, y: 0.2, z: 0.702}, orientation: {x: 0.442, y: 0.699, z: -0.331, w: -0.454}}}" --once
+┌─────────────────────────────────────────────────────────┐
+│          robot_vision_ik_traj_setup.launch.py          │
+│                   (Main Launcher)                       │
+└────────────┬────────────────────────────────────────────┘
+             │
+    ┌────────┼────────┬──────────┬──────────┐
+    │        │        │          │          │
+    ▼        ▼        ▼          ▼          ▼
+  UR10e   RealSense  ArUco    Task      Gripper
+ Control   Camera   Detector  Executor   Control
 ```
 
+### Componenti Principali
 
+| Componente | Descrizione | Node/Launch |
+|-----------|-----------|------------|
+| **UR10e Control** | Controllo braccio + IK trajectory | `ur10e_ik_trajectory_node` |
+| **Visione** | RealSense RGB-D camera | `rs_launch.py` |
+| **ArUco Detection** | Riconoscimento marker | `aruco_ros/single.launch.py` |
+| **Task Manager** | Salva/esegui sequenze | `task_saving_node_complete`, `task_executor_node_complete` |
+| **Gripper** | Controllo gripper | Servizio `/gripper_control` |
+| **LLM Interface** | Chat interattiva | `llm_app/chatlive` |
 
+---
 
-## lanciare la realsense
-```
-ros2 launch realsense2_camera rs_launch.py
-```
+## 🚀 Avvio Veloce
 
-## lanciare il nodo aruco specificare il marker_id in base all'aruco
-```
-ros2 launch aruco_ros single.launch.py \
-    image_topic:=/camera/camera/color/image_raw \
-    camera_info_topic:=/camera/camera/color/camera_info \
-    marker_size:=0.15 \
-    marker_id:=257 \
-    camera_frame:=camera_link
-```
+### Scenario 1: Simulazione Pura (senza hardware)
 
-
-
-## utilizzare quest come laucnhe complessivo 
-```
-ros2 launch ur10e_ros2 robot_vision_ik_traj_setup.launch.py 
+```bash
+ros2 launch ur10e_ros2 robot_vision_ik_traj_setup.launch.py
 ```
 
+### Scenario 2: Con RealSense
 
-Ho creato il nodo task_saving_node_complete, parte con il launch robot_vision_ik_setup.launch.py 
-
-- save_mode: 0 (assoluto): Per posizioni fisse nel mondo, rispetto alla base del robot.
-- save_mode: 1 (relativo alla telecamera):
-Molto utile con telecamera fissa: Permette al robot di interagire con oggetti in posizioni variabili nel campo visivo della telecamera fissa.
-Meno evidente con telecamera eye-in-hand: La posa salvata descrive una relazione piccola e quasi statica tra l'end-effector e la telecamera, che si muovono insieme. Il movimento evidente arriva quando il robot si sposta per inquadrare un nuovo oggetto e poi si posiziona relativamente a quel punto inquadrato.
--save_mode: 2 (relativo a ArUco): Ti permette di definire una posa direttamente relativa a un oggetto specifico (il marker ArUco), indipendentemente da dove si trovi l'oggetto o il robot.
-
-
-```
-ros2 service call /save_pose ur_msgs/srv/SavePose "{save_mode: 0, task_name: 'home_pose', reference_frame: ''}"
-```
-```
-ros2 service call /save_pose ur_msgs/srv/SavePose "{save_mode: 1, task_name: 'pre_grasp_from_camera', reference_frame: ''}"
-```
-```
-ros2 service call /save_pose ur_msgs/srv/SavePose "{save_mode: 2, task_name: 'pick_aruco_dynamic', reference_frame: 'aruco_marker_frame'}"
-
+```bash
+ros2 launch ur10e_ros2 robot_vision_ik_traj_setup.launch.py enable_realsense:=true
 ```
 
-Pulire le pose
-```
-ros2 service call /clear_saved_poses std_srvs/srv/Trigger "{}"
-```
+### Scenario 3: Con QB Softhand
 
-
-
-
-lanciare se non è lanciato dal luanch
-```
-ros2 run ur10e_ros2 task_executor_node_complete 
+```bash
+ros2 launch ur10e_ros2 robot_vision_ik_traj_setup.launch.py enable_qb:=true
 ```
 
-e successivamente chiamare
+### Scenario 4: Sistema Completo
+
+```bash
+ros2 launch ur10e_ros2 robot_vision_ik_traj_setup.launch.py \
+  enable_realsense:=true \
+  enable_qb:=true
 ```
+
+---
+
+## 📡 Comandi Principali
+
+### 1️⃣ Controllo del Braccio - Movimenti Cartesiani
+
+Invia una posizione target (x, y, z) e orientamento al braccio:
+
+```bash
+ros2 topic pub /target_cartesian_pose geometry_msgs/msg/PoseStamped \
+  "{header: {stamp: {sec: 0, nanosec: 0}, frame_id: 'base_link'}, \
+    pose: {position: {x: 0.5, y: 0.2, z: 0.4}, \
+    orientation: {x: 0.0, y: 1.0, z: 0.0, w: 0.0}}}" --once
+```
+
+**Parametri:**
+- `x, y, z`: Posizione in metri rispetto a `base_link`
+- `orientation`: Quaternione (x, y, z, w) per l'orientamento end-effector
+
+### 2️⃣ Salvataggio Pose
+
+Il sistema supporta 3 modalità di salvataggio:
+
+#### Mode 0: Assoluto (World Frame)
+Salva pose fisse rispetto alla base del robot. Ideale per posizioni pre-definite.
+
+```bash
+ros2 service call /save_pose ur_msgs/srv/SavePose \
+  "{save_mode: 0, task_name: 'home_pose', reference_frame: ''}"
+```
+
+#### Mode 1: Relativo alla Telecamera
+Salva pose relative alla camera. Perfetto per interagire con oggetti in posizioni variabili nel FOV.
+
+```bash
+ros2 service call /save_pose ur_msgs/srv/SavePose \
+  "{save_mode: 1, task_name: 'pre_grasp_from_camera', reference_frame: ''}"
+```
+
+#### Mode 2: Relativo a ArUco Marker
+Salva pose relative a un marker ArUco. Consente picking dinamico di oggetti etichettati.
+
+```bash
+ros2 service call /save_pose ur_msgs/srv/SavePose \
+  "{save_mode: 2, task_name: 'pick_aruco_dynamic', reference_frame: 'aruco_marker_frame'}"
+```
+
+### 3️⃣ Gestione Task
+
+#### Eseguire Tutti i Task Salvati
+
+```bash
 ros2 service call /execute_saved_tasks std_srvs/srv/Trigger "{}"
 ```
 
-per eseguire tutti i task
+#### Eliminare Tutte le Pose Salvate
 
-
-
-
-
-
-
-
-
-
-### SOFTHAND
-Segui questo info  per installare la mano
-https://index.ros.org/r/qb_softhand_industry/
-
-attivare la mano
-ros2 launch qb_softhand_industry_driver softhand_industry_communication_handler.launch.py 
-
-
-attivare i motori della mano
-ros2 service call   /qb_softhand_industry_communication_handler/activate_motors   qb_softhand_industry_srvs/srv/Trigger "{}"
-
-Si Possono usare i topic ufficiali di qb
-chiudere la mano
-ros2 service call   /qb_softhand_industry_communication_handler/set_command   qb_softhand_industry_srvs/srv/SetCommand   "{max_repeats: 1, set_commands: true, position_command: 3000}"
-
-Aprire la mano
-ros2 service call   /qb_softhand_industry_communication_handler/set_command   qb_softhand_industry_srvs/srv/SetCommand   "{max_repeats: 1, set_commands: true, position_command: 0}"
-
-max 3500 min 0
-
-Aggiunto i servizi al launcher dell ur
-```
- ros2 service call /gripper_control ur_msgs/srv/GripperCommand "{command: 'close'}"
- ros2 service call /gripper_control ur_msgs/srv/GripperCommand "{command: 'open'}"
+```bash
+ros2 service call /clear_saved_poses std_srvs/srv/Trigger "{}"
 ```
 
+### 4️⃣ Controllo Gripper
 
-ros2 launch ur_onrobot_control start_robot.launch.py ur_type:=ur10e onrobot_type:=rg2 robot_ip:=127.0.0.1  use_fake_hardware:=true 
+#### Chiudere
 
+```bash
+ros2 service call /gripper_control ur_msgs/srv/GripperCommand "{command: 'close'}"
+```
 
-lanci il comando con robot
-ros2 launch ur_simulation_gazebo ur_sim_control.launch.py description_package:=tools_config description_file:=ur_camera_robotiq.urdf.xacro ur_type:=ur10e
+#### Aprire
 
+```bash
+ros2 service call /gripper_control ur_msgs/srv/GripperCommand "{command: 'open'}"
+```
 
+---
 
+## 🤖 QB Softhand Industry
 
-### Centrealizzazione
-Ho inserito tutto i commandi anche di linguaggio naturale in unico launcher, Questo lancia: LLM app + FK + IK + Task executor + tutto il sistema 
+### Attivazione Motori
 
+```bash
+ros2 service call /qb_softhand_industry_communication_handler/activate_motors \
+  qb_softhand_industry_srvs/srv/Trigger "{}"
+```
 
+### Comandi Diretti (Advanced)
 
-# Avvia senza dispositivi (simulazione)
+**Chiudere completamente** (posizione: 3000)
+```bash
+ros2 service call /qb_softhand_industry_communication_handler/set_command \
+  qb_softhand_industry_srvs/srv/SetCommand \
+  "{max_repeats: 1, set_commands: true, position_command: 3000}"
+```
 
+**Aprire completamente** (posizione: 0)
+```bash
+ros2 service call /qb_softhand_industry_communication_handler/set_command \
+  qb_softhand_industry_srvs/srv/SetCommand \
+  "{max_repeats: 1, set_commands: true, position_command: 0}"
+```
 
-ros2 launch ur10e_ros2 robot_vision_ik_traj_setup.launch.py
+**Range:** 0 (aperto) a 3500 (chiuso)
 
-# Avvia con realsense
-ros2 launch ur10e_ros2 robot_vision_ik_traj_setup.launch.py enable_realsense:=true
+---
 
-# Avvia con qb softhand
-ros2 launch ur10e_ros2 robot_vision_ik_traj_setup.launch.py enable_qb:=true
+## 🎥 Visione Artificiale
 
-# Avvia con entrambi
-ros2 launch ur10e_ros2 robot_vision_ik_traj_setup.launch.py enable_realsense:=true enable_qb:=true
+### RealSense Camera
 
-Terminale 2 (chat interattiva - in un altro docker exec):
-ros2 run voice_command_interpreter nl_savepose_parser
-🗣️ Comando:Salva la posa home
-Chiudi la mano
-Apri la mano
-Esegui i task
+Lanciata automaticamente con `enable_realsense:=true`, oppure manualmente:
 
+```bash
+ros2 launch realsense2_camera rs_launch.py
+```
 
+**Topics disponibili:**
+- `/camera/color/image_raw` - Immagine RGB
+- `/camera/depth/image_rect_raw` - Mappa di profondità
+- `/camera/color/camera_info` - Parametri interni camera
 
-ESEGUI UNA SEQUENZA di presa dell'oggetto
-ogni volta che ha raggiunto la posizone salva la psoizone su save pose.
-per salvare la posizone usa 
-ros2 run llm_app chatlive 
+### Riconoscimento ArUco
 
-che salva la ryoutin nel json.
-scrivi save pose per salva al posizine del robot
-scrive open/close il gripper
-scrive salva la posizoen del girpper per salvare lo srtato in base al flusso logica.
+```bash
+ros2 launch aruco_ros single.launch.py \
+  image_topic:=/camera/color/image_raw \
+  camera_info_topic:=/camera/color/camera_info \
+  marker_size:=0.15 \
+  marker_id:=0 \
+  camera_frame:=camera_link
+```
 
-manda la posizione come topic 
-ros2 topic pub /target_cartesian_pose geometry_msgs/PoseStamped "header:
-  frame_id: 'base_link'
-pose:
-  position:
-    x: 0.70
-    y: 0.0
-    z: 0.55
-  orientation:
-    x: 0.0
-    y: 1.0
-    z: 0.0
-    w: 0.0" --once
+**Output:** `aruco_marker_frame` - TF del marker rilevato
 
-ros2 topic pub /target_cartesian_pose geometry_msgs/PoseStamped "header:
+---
+
+## 🗣️ Interfaccia LLM (Comandi Naturali)
+
+### Chat Interattiva
+
+Apri un secondo terminale:
+
+```bash
+ros2 run llm_app chatlive
+```
+
+**Comandi Disponibili:**
+- `"Salva la posa home"` → Salva pose assoluta
+- `"Chiudi la mano"` → Gripper close
+- `"Apri la mano"` → Gripper open
+- `"Esegui i task"` → Esegui sequenza salvata
+- `"Vai a [x, y, z]"` → Movimento cartesiano
+
+---
+
+## 🏭 Gazebo Simulation
+
+### Con descrizione UR + Camera + Robotiq
+
+```bash
+ros2 launch ur_simulation_gazebo ur_sim_control.launch.py \
+  description_package:=tools_config \
+  description_file:=ur_camera_robotiq.urdf.xacro \
+  ur_type:=ur10e
+```
+
+---
+
+## 🔴 Robot Reale - UR10e Fisico
+
+### Prerequisiti
+
+1. **Configurazione di rete:**
+   - PC: indirizzo IP `192.168.56.1`
+   - UR10e: indirizzo IP `192.168.56.100`
+
+2. **Setup UR+ Panel:**
+   - Accedi a URCap → External Control
+   - Imposta indirizzo PC: `192.168.56.1`
+
+### Lancio
+
+```bash
+ros2 launch ur_robot_driver ur_control.launch.py \
+  ur_type:=ur10e \
+  robot_ip:=192.168.56.100 \
+  launch_rviz:=true \
+  initial_joint_controller:=scaled_joint_trajectory_controller
+```
+
+---
+
+## 📚 Workflow Completo: Picking Dinamico
+
+### Step 1: Avvia il Sistema
+
+```bash
+ros2 launch ur10e_ros2 robot_vision_ik_traj_setup.launch.py \
+  enable_realsense:=true enable_qb:=true
+```
+
+### Step 2: Posiziona il Marker ArUco
+
+Posiziona l'oggetto con marker ArUco (es. ID=0) nel FOV della camera.
+
+### Step 3: Salva Pose di Approccio
+
+**Pre-grasp relativa a camera:**
+```bash
+ros2 service call /save_pose ur_msgs/srv/SavePose \
+  "{save_mode: 1, task_name: 'pre_grasp', reference_frame: ''}"
+```
+
+**Grasp relativa ad ArUco:**
+```bash
+ros2 service call /save_pose ur_msgs/srv/SavePose \
+  "{save_mode: 2, task_name: 'grasp', reference_frame: 'aruco_marker_frame'}"
+```
+
+**Home assoluta:**
+```bash
+ros2 service call /save_pose ur_msgs/srv/SavePose \
+  "{save_mode: 0, task_name: 'home', reference_frame: ''}"
+```
+
+### Step 4: Esegui la Sequenza
+
+```bash
+ros2 service call /execute_saved_tasks std_srvs/srv/Trigger "{}"
+```
+
+Il robot eseguirà: pre-grasp → grasp → home
+
+---
+
+## 🔧 Troubleshooting
+
+| Problema | Soluzione |
+|----------|-----------|
+| `[ERROR] Failed to detect ArUco marker` | Aumentare luminosità, controllare ID marker, verificare size |
+| `IK not converging` | Posizione target non raggiungibile, verificare limiti articolari |
+| `RealSense not found` | `ros2 run realsense2_camera list_devices` per verificare connessione |
+| `Gripper non risponde` | Verificare comunicazione USB/ethernet, eseguire `activate_motors` |
+
+---
+
+## 📁 Struttura Package
+
+```
+ur10e_ros2/
+├── launch/
+│   └── robot_vision_ik_traj_setup.launch.py
+├── src/
+│   ├── ur10e_ik_trajectory_node.cpp
+│   ├── task_saving_node_complete.cpp
+│   └── task_executor_node_complete.cpp
+├── msg/
+└── srv/
+```
+
+---
+
+## 📖 Riferimenti
+
+- **UR Driver:** https://github.com/UniversalRobots/Universal_Robots_ROS2_Driver
+- **QB Softhand:** https://index.ros.org/r/qb_softhand_industry/
+- **ArUco ROS:** https://github.com/pal-robotics/aruco_ros
+- **RealSense:** https://github.com/IntelRealSense/realsense-ros
+
+---
   frame_id: 'base_link'
 pose:
   position:
