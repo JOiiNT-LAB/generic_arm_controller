@@ -21,7 +21,7 @@ from launch.actions import (
     TimerAction,
 )
 from launch.conditions import IfCondition
-from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
+from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, PythonExpression
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
 
@@ -70,7 +70,7 @@ def generate_launch_description():
             'launch/robots',
             'ur10e.launch.py',
         ]),
-        condition=IfCondition(LaunchConfiguration('robot') == 'ur10e')
+        condition=IfCondition(PythonExpression([LaunchConfiguration('robot'), " == 'ur10e'"]))
     )
 
     # -----------------------------------------------------------------------
@@ -82,7 +82,7 @@ def generate_launch_description():
             'launch/grippers',
             'robotiq_gripper.launch.py',
         ]),
-        condition=IfCondition(LaunchConfiguration('gripper') == 'robotiq')
+        condition=IfCondition(PythonExpression([LaunchConfiguration('gripper'), " == 'robotiq'"]))
     )
 
     qb_softhand_launcher = IncludeLaunchDescription(
@@ -91,7 +91,7 @@ def generate_launch_description():
             'launch/grippers',
             'qb_softhand.launch.py',
         ]),
-        condition=IfCondition(LaunchConfiguration('gripper') == 'qb_softhand')
+        condition=IfCondition(PythonExpression([LaunchConfiguration('gripper'), " == 'qb_softhand'"]))
     )
 
     # -----------------------------------------------------------------------
@@ -103,7 +103,7 @@ def generate_launch_description():
             'launch/sensors',
             'realsense_sensor.launch.py',
         ]),
-        condition=IfCondition(LaunchConfiguration('enable_realsense') == 'true')
+        condition=IfCondition(PythonExpression([LaunchConfiguration('enable_realsense'), " == 'true'"]))
     )
 
     aruco_launcher = IncludeLaunchDescription(
@@ -112,7 +112,7 @@ def generate_launch_description():
             'launch/sensors',
             'aruco_sensor.launch.py',
         ]),
-        condition=IfCondition(LaunchConfiguration('enable_aruco') == 'true')
+        condition=IfCondition(PythonExpression([LaunchConfiguration('enable_aruco'), " == 'true'"]))
     )
 
     # -----------------------------------------------------------------------
