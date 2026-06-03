@@ -42,31 +42,97 @@ This package provides a modular and generic control system for robotic arms (UR,
 
 ## 🚀 Quick Start
 
-### Scenario 1: Pure Simulation (without hardware)
+### Option 1: Traditional Launcher (All-in-One)
+
+This is the original `robot_vision_ik_traj_setup.launch.py` - simpler but less modular.
+
+#### Scenario 1: Pure Simulation (without hardware)
 
 ```bash
 ros2 launch generic_arm_controller robot_vision_ik_traj_setup.launch.py
 ```
 
-### Scenario 2: With RealSense
+#### Scenario 2: With RealSense
 
 ```bash
 ros2 launch generic_arm_controller robot_vision_ik_traj_setup.launch.py enable_realsense:=true
 ```
 
-### Scenario 3: With QB Softhand
+#### Scenario 3: With QB Softhand
 
 ```bash
 ros2 launch generic_arm_controller robot_vision_ik_traj_setup.launch.py enable_qb:=true
 ```
 
-### Scenario 4: Complete System
+#### Scenario 4: Complete System
 
 ```bash
 ros2 launch generic_arm_controller robot_vision_ik_traj_setup.launch.py \
   enable_realsense:=true \
   enable_qb:=true
 ```
+
+---
+
+### Option 2: Modular Launcher (Recommended) 🌟
+
+This is the new `system_setup.launch.py` - modular, scalable, and easier to compose different hardware configurations.
+
+#### With UR10e + Robotiq Gripper
+
+```bash
+ros2 launch generic_arm_controller system_setup.launch.py \
+  robot:=ur10e \
+  gripper:=robotiq
+```
+
+#### With UR10e + Robotiq + RealSense
+
+```bash
+ros2 launch generic_arm_controller system_setup.launch.py \
+  robot:=ur10e \
+  gripper:=robotiq \
+  enable_realsense:=true
+```
+
+#### With UR10e + QB Softhand + RealSense + ArUco
+
+```bash
+ros2 launch generic_arm_controller system_setup.launch.py \
+  robot:=ur10e \
+  gripper:=qb_softhand \
+  enable_realsense:=true \
+  enable_aruco:=true
+```
+
+#### With Custom Target Frame (for different robots)
+
+```bash
+# Franka Panda (uses panda_link0 instead of base_link)
+ros2 launch generic_arm_controller system_setup.launch.py \
+  robot:=ur10e \
+  target_frame:=panda_link0 \
+  gripper:=robotiq
+
+# KUKA LBR (uses base instead of base_link)
+ros2 launch generic_arm_controller system_setup.launch.py \
+  robot:=ur10e \
+  target_frame:=base \
+  gripper:=robotiq
+```
+
+---
+
+### Launch Arguments Comparison
+
+| Argument | Launcher 1 | Launcher 2 |
+|----------|-----------|-----------|
+| `enable_realsense` | ✓ | ✓ |
+| `enable_qb` | ✓ | Uses `gripper:=qb_softhand` |
+| `robot` | ❌ | ✓ (ur10e, franka, etc.) |
+| `gripper` | ❌ | ✓ (robotiq, qb_softhand, rg2) |
+| `target_frame` | ✓ | ✓ |
+| `enable_aruco` | ✓ | ✓ |
 
 ---
 
@@ -319,17 +385,48 @@ The robot will execute: pre-grasp → grasp → home
 ```
 generic_arm_controller/
 ├── launch/
-│   └── robot_vision_ik_traj_setup.launch.py
+│   ├── robot_vision_ik_traj_setup.launch.py (Traditional all-in-one launcher)
+│   ├── system_setup.launch.py (NEW - Modular orchestrator)
+│   ├── robots/
+│   │   └── ur10e.launch.py (UR10e robot config)
+│   ├── grippers/
+│   │   ├── robotiq_gripper.launch.py (Robotiq RG2/RG6)
+│   │   └── qb_softhand.launch.py (QB Softhand Industry)
+│   └── sensors/
+│       ├── realsense_sensor.launch.py (RealSense RGB-D)
+│       └── aruco_sensor.launch.py (ArUco detection)
 ├── generic_arm_controller/
 │   ├── ik_trajectory_node.py
 │   ├── task_saving_node_complete.py
 │   ├── task_executor_node_complete.py
+│   ├── fk_node.py
+│   ├── gripper_manager.py
 │   └── ...
 ├── config/
 │   └── ik_trajectory_node_params.yaml
 └── calibration_results/
     └── hand_eye_transform.yaml
 ```
+
+### Launcher Architecture
+
+**Modular Design (NEW `system_setup.launch.py`):**
+```
+system_setup.launch.py (Orchestrator)
+├── robots/ur10e.launch.py
+├── grippers/robotiq_gripper.launch.py (or qb_softhand.launch.py)
+├── sensors/realsense_sensor.launch.py (optional)
+├── sensors/aruco_sensor.launch.py (optional)
+├── task_executor_node
+├── task_saving_node
+└── llm_app (delayed start)
+```
+
+This architecture allows you to:
+- ✅ Swap robot configurations (e.g., ur10e → franka)
+- ✅ Swap gripper types (e.g., robotiq → qb_softhand → rg2)
+- ✅ Enable/disable sensors independently
+- ✅ Keep logic nodes separate from hardware configuration
 
 ---
 
@@ -341,14 +438,39 @@ The system supports different robot configurations via the `target_frame` parame
 
 ```bash
 # For UR (default: base_link)
-ros2 launch generic_arm_controller robot_vision_ik_traj_setup.launch.py
+ros2 launch generic_arm_controller system_setup.launch.py robot:=ur10e
 
 # For Franka Panda (panda_link0)
-ros2 launch generic_arm_controller robot_vision_ik_traj_setup.launch.py target_frame:=panda_link0
+ros2 launch generic_arm_controller system_setup.launch.py robot:=ur10e target_frame:=panda_link0
 
 # For KUKA LBR (base)
-ros2 launch generic_arm_controller robot_vision_ik_traj_setup.launch.py target_frame:=base
+ros2 launch generic_arm_controller system_setup.launch.py robot:=ur10e target_frame:=base
 ```
+
+### Adding New Robot Configurations
+
+To add support for a new robot (e.g., Franka):
+
+1. Create `launch/robots/franka.launch.py` with your robot-specific nodes
+2. Update `system_setup.launch.py` to include it:
+   ```python
+   franka_launcher = IncludeLaunchDescription(
+       PathJoinSubstitution([...]),
+       condition=IfCondition(LaunchConfiguration('robot') == 'franka')
+   )
+   ```
+
+### Adding New Gripper Types
+
+To add a new gripper (e.g., RG2):
+
+1. Create `launch/grippers/rg2_gripper.launch.py`
+2. Update `system_setup.launch.py` to include it
+3. Use it:
+   ```bash
+   ros2 launch generic_arm_controller system_setup.launch.py \
+     robot:=ur10e gripper:=rg2
+   ```
 
 ---
 
