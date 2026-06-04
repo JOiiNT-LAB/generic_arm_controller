@@ -13,7 +13,8 @@ from trajectory_msgs.msg import JointTrajectoryPoint
 
 import pinocchio as pin
 
-from generic_arm_controller.urdf_loader import build_pinocchio_urdf
+from ur10e_ros2.urdf_loader import build_pinocchio_urdf
+
 
 class IKTrajectoryNode(Node):
     """

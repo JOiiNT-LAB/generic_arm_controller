@@ -1,5 +1,3 @@
-from time import time
-
 import rclpy
 from rclpy.node import Node
 from rclpy.callback_groups import ReentrantCallbackGroup
@@ -9,15 +7,6 @@ from rclpy.action import ActionClient  # <--- NUOVO: Import per gestire l'azione
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 from ur_msgs.srv import GripperCommand as GripperSrv
 from control_msgs.action import GripperCommand as GripperAction # <--- NUOVO: Tipo di azione ufficiale
-# Aggiungi in alto
-from tf2_ros.buffer import Buffer
-from tf2_ros.transform_listener import TransformListener
-from gazebo_msgs.srv import SetEntityState
-
-# Aggiungi in alto
-from gazebo_msgs.srv import GetEntityState, SetEntityState
-from tf2_ros import Buffer, TransformListener
-from rclpy.time import Time  # <-- Importato per la gestione del tempo zero
 
 # FIX 3: import QB protetto
 try:
@@ -40,16 +29,7 @@ class GripperManager(Node):
 
     def __init__(self):
         super().__init__('gripper_manager')
-        # Nel __init__ della classe GripperManager
 
-        # Nel __init__ del GripperManager:
-        # Nel tuo __init__
-        self.gazebo_get_client = self.create_client(GetEntityState, '/gazebo/get_entity_state')
-        self.gazebo_set_client = self.create_client(SetEntityState, '/gazebo/set_entity_state')
-        self.tf_buffer = Buffer()
-        self.tf_listener = TransformListener(self.tf_buffer, self)
-        self.target_object = "cylinder_object"
-        self.is_sim = True 
         # FIX DEADLOCK: ReentrantCallbackGroup + MultiThreadedExecutor
         self.cb_group = ReentrantCallbackGroup()
 
@@ -222,100 +202,66 @@ class GripperManager(Node):
             else f'SoftHand: position={position:.3f} (cmd={softhand_cmd})'
         )
         return response
-    def _handle_robotiq(self, position, response):
-            # 1. Configurazione del goal
-            robotiq_pos = ROBOTIQ_MAX_POS - position * (ROBOTIQ_MAX_POS - ROBOTIQ_MIN_POS)
-            goal_msg = GripperAction.Goal()
-            goal_msg.command.position = robotiq_pos
-            
-            # 2. Invio asincrono del goal
-            send_goal_future = self.robotiq_client.send_goal_async(goal_msg)
-            
-            # 3. Aggiungiamo una funzione che verrà chiamata quando l'azione finisce
-            send_goal_future.add_done_callback(
-                lambda future: self._robotiq_goal_accepted_callback(future, position)
-            )
 
-            # 4. RISPONDI SUBITO (NON ASPETTARE)
-            response.success = True
-            response.message = "Comando Robotiq inviato, esecuzione in background."
+    # =========================================================
+    # NUOVO: ROBOTIQ (Gestione asincrona Action Server non bloccante)
+    # =========================================================
+
+    def _handle_robotiq(self, position: float, response):
+        if not self.robotiq_client.wait_for_server(timeout_sec=2.0):
+            response.success = False
+            response.message = 'Action server della Robotiq non disponibile!'
+            self.get_logger().error(response.message)
             return response
 
-    def _robotiq_goal_accepted_callback(self, future, position):
-        try:
-            goal_handle = future.result()
-            if not goal_handle.accepted:
-                self.get_logger().error("Robotiq: Goal rifiutato dal controller!")
-                return
-            self.get_logger().info("Robotiq: Goal accettato, attendo risultato...")
-            
-            get_result_future = goal_handle.get_result_async()
-            get_result_future.add_done_callback(
-                lambda res: self._robotiq_final_callback(res, position)
-            )
-        except Exception as e:
-            self.get_logger().error(f"Errore nella callback di accettazione: {e}")
+        # Mappatura della posizione:
+        # La tua richiesta logica ragiona: 1.0 = Aperto, 0.0 = Chiuso.
+        # Il GripperCommand dell'action server ragiona: 0.0 = Aperto, 0.8 = Chiuso.
+        # Invertiamo la posizione scalando sul range corretto:
+        robotiq_pos = ROBOTIQ_MAX_POS - position * (ROBOTIQ_MAX_POS - ROBOTIQ_MIN_POS)
 
-    def _robotiq_final_callback(self, future, position):
-        self.get_logger().info("Robotiq: Azione terminata, controllo grasping...")
-        # Aggiungi questo log per debuggare
-        self.get_logger().info(f"DEBUG: is_sim={self.is_sim}, position={position}")
+        goal_msg = GripperAction.Goal()
+        goal_msg.command.position = robotiq_pos
+        goal_msg.command.max_effort = 100.0  # Forza di presa
+
+        self.get_logger().info(f'[Robotiq] Invio goal posizione: {robotiq_pos:.3f}')
         
-        if self.is_sim and position < 0.2:
-            if self._check_object_proximity():
-                self._perform_finto_grasping()
-            else:
-                self.get_logger().warn("Robotiq: Chiuso ma oggetto non trovato (distanza eccessiva).")
-    def _perform_finto_grasping(self):
-        try:
-            # 1. Recupera la posa del tool0
-            trans = self.tf_buffer.lookup_transform('base_link', 'tool0', rclpy.time.Time())
-            
-            # 2. Chiama il servizio di Gazebo per teletrasportare l'oggetto
-            req = SetEntityState.Request()
-            req.state.name = self.target_object
-            req.state.pose.position.x = trans.transform.translation.x
-            req.state.pose.position.y = trans.transform.translation.y
-            req.state.pose.position.z = trans.transform.translation.z + 0.05 # Offset Z
-            req.state.reference_frame = "base_link"
-            
-            self.gazebo_client.call_async(req)
-            self.get_logger().info("[GRASP SIM] Teletrasporto oggetto riuscito!")
-        except Exception as e:
-            self.get_logger().error(f"Errore durante finto grasping: {e}")
-    def _check_object_proximity(self) -> bool:
-        # Verifica veloce senza bloccare il thread
-        if not self.gazebo_get_client.service_is_ready():
-            self.get_logger().warn("Gazebo servizio non pronto, salto check grasping.")
-            return False
-            
-        req = GetEntityState.Request()
-        req.name = self.target_object
-        req.reference_frame = "world"
-        
-        # Chiamata asincrona pura
-        future = self.gazebo_get_client.call_async(req)
-        
-        # Non usare spin_until_future_complete! 
-        # Aggiungi un callback che verrà chiamato quando Gazebo risponde
-        future.add_done_callback(self._check_grasping_callback)
-        return False # Torniamo False subito, la logica avverrà nel callback
-        
-    def _check_grasping_callback(self, future):
-        try:
-            res = future.result()
-            if res and res.success:
-                transform = self.tf_buffer.lookup_transform('base_link', 'tool0', rclpy.time.Time())
-                distanza = ((transform.transform.translation.x - res.state.pose.position.x)**2 + 
-                            (transform.transform.translation.y - res.state.pose.position.y)**2 + 
-                            (transform.transform.translation.z - res.state.pose.position.z)**2)**0.5
-                
-                self.get_logger().info(f"Dist. finale: {distanza:.4f}")
-                if distanza < 0.8:
-                    self._perform_finto_grasping()
-        except Exception as e:
-            self.get_logger().error(f"Errore nel callback: {e}")
-         # =========================================================
+        # Inviamo la richiesta del goal asincrona
+        send_goal_future = self.robotiq_client.send_goal_async(goal_msg)
+
+        import time
+        timeout = 5.0
+        start = time.time()
+
+        # 1. Attesa accettazione goal dal server
+        while not send_goal_future.done():
+            time.sleep(0.01)
+            if time.time() - start > timeout:
+                response.success = False
+                response.message = 'Timeout accettazione goal Robotiq.'
+                return response
+
+        goal_handle = send_goal_future.result()
+        if not goal_handle.accepted:
+            response.success = False
+            response.message = 'Goal Robotiq rifiutato dall\'action server.'
+            return response
+
+        # 2. Attesa del risultato finale dell'azione (movimento completato)
+        get_result_future = goal_handle.get_result_async()
+        while not get_result_future.done():
+            time.sleep(0.01)
+            if time.time() - start > timeout:
+                response.success = False
+                response.message = 'Timeout completamento movimento Robotiq.'
+                return response
+
+        self.get_logger().info(f'[Robotiq] Movimento completato con successo.')
+        response.success = True
+        response.message = f'Robotiq posizionata a {robotiq_pos:.2f} (Input logico: {position:.2f})'
+        return response
+
+    # =========================================================
     # AUTO SELECT (Ottimizzato per rilevare la Robotiq)
     # =========================================================
 

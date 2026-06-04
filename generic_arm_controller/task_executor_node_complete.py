@@ -11,14 +11,12 @@ from std_msgs.msg import Bool
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy, DurabilityPolicy
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.callback_groups import ReentrantCallbackGroup
-from rclpy.time import Time  # <-- Importato per la gestione del tempo zero
 
 import tf2_ros
 from tf2_ros import TransformException
 from tf2_ros.buffer import Buffer
 from tf2_ros.transform_listener import TransformListener
 import tf2_geometry_msgs
-
 
 from ur_msgs.srv import GripperCommand as GripperSrv
 
@@ -28,22 +26,12 @@ class TaskExecutorNode(Node):
         super().__init__('task_executor_node')
         self.get_logger().info('Task Executor Node Started.')
 
-        # Parametri ROS2 per i frame TF
-        self.declare_parameter('target_frame', 'base_link')
-        self.target_frame = self.get_parameter('target_frame').value
-        self.get_logger().info(f"Using target frame: {self.target_frame}")
-
         self.reentrant_callback_group = ReentrantCallbackGroup()
 
         # TF2
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
 
-        self.is_sim = True # Impostalo a True solo per i test in Gazebo
-        
-        # Nome dell'oggetto
-        self.target_object_in_sim = "cylinder_object" 
-        self.cube_attached = False
         # Publisher IK
         self.target_pose_publisher = self.create_publisher(
             PoseStamped, '/target_cartesian_pose', 10
@@ -81,10 +69,6 @@ class TaskExecutorNode(Node):
             callback_group=self.reentrant_callback_group
         )
 
-        # Nome dell'oggetto da cercare in simulazione (il tuo cilindro)
-        self.target_object_in_sim = "cylinder_object" 
-        self.cube_attached = False
-
         # Stato interno
         self.ik_action_result_received = False
         self.ik_action_success         = False
@@ -92,6 +76,9 @@ class TaskExecutorNode(Node):
         self.ik_completion_timeout     = 20.0
         self.gripper_timeout           = 10.0
 
+        # ------------------------------------------------------------------
+        # CORREZIONE QUI: Puntiamo allo stesso identico file cumulativo
+        # ------------------------------------------------------------------
         home_dir = os.path.expanduser("~")
         self.json_file_path_ws = os.path.join(
             home_dir, 'ros2_ws/src/task_result/robot_poses_ws.json'
@@ -137,35 +124,51 @@ class TaskExecutorNode(Node):
     # ------------------------------------------------------------------
     # Esecuzione task gripper
     # ------------------------------------------------------------------
+
     def _execute_gripper_task(self, task_data: dict) -> bool:
-        self.get_logger().info(f"(DEBUG): is_sim = {self.is_sim}")
-        command  = task_data.get('command', '')
-        position = float(task_data.get('position', 0.0))
+        command      = task_data.get('command', '')
+        position     = float(task_data.get('position', 0.0))
+        gripper_type = task_data.get('gripper_type', 'auto')
 
         if not self.gripper_client.service_is_ready():
+            self.get_logger().warn("GripperManager non pronto, attendo 5 s...")
             if not self.gripper_client.wait_for_service(timeout_sec=5.0):
-                self.get_logger().error("GripperManager non raggiungibile.")
+                self.get_logger().error("GripperManager non raggiungibile. Salto.")
                 return False
 
-        req = GripperSrv.Request()
-        req.command = command
+        req          = GripperSrv.Request()
+        req.command  = command
         req.position = position
+        if hasattr(req, 'gripper_type'):
+            req.gripper_type = gripper_type
 
-        # Chiamata asincrona
+        pos_info = (
+            f"position={position:.3f}" if command == "move" else command
+        )
+        self.get_logger().info(
+            f"Gripper → {pos_info} ({gripper_type})"
+        )
+
         future = self.gripper_client.call_async(req)
-        
-        # ATTESA NON BLOCCANTE: permettiamo il timeout ma non falliamo il task se il gripper tocca un oggetto
-        start = time.time()
+        start  = time.time()
         while not future.done():
             time.sleep(0.01)
-            # Se il tempo scade, logghiamo un warning ma proseguiamo comunque
             if time.time() - start > self.gripper_timeout:
-                self.get_logger().warn("Gripper timeout raggiunto (possibile contatto oggetto). Procedo col grasping.")
-                break 
+                self.get_logger().warn(
+                    f"Timeout gripper ({self.gripper_timeout:.1f} s)."
+                )
+                return False
 
+        result = future.result()
+        if result is None:
+            self.get_logger().error("Risposta gripper nulla.")
+            return False
 
-
-        return True
+        if result.success:
+            self.get_logger().info(f"Gripper OK: {result.message}")
+        else:
+            self.get_logger().warn(f"Gripper FAIL: {result.message}")
+        return result.success
 
     # ------------------------------------------------------------------
     # Esecuzione task movimento (IK)
@@ -175,10 +178,7 @@ class TaskExecutorNode(Node):
         task_name = task_data.get('task_name', 'Unnamed')
 
         pose = PoseStamped()
-        
-        # CORREZIONE TEMPORALE: Inizializziamo il timestamp a 0 per la trasformazione TF.
-        # Questo dice a TF2 di prendere l'ultimo frame disponibile senza sollevare eccezioni sul futuro.
-        pose.header.stamp = Time().to_msg()
+        pose.header.stamp = rclpy.time.Time().to_msg()
 
         try:
             source_frame = task_data['source_frame']
@@ -203,24 +203,18 @@ class TaskExecutorNode(Node):
             )
             return False
 
-        # Trasformazione TF se necessaria (es. da aruco_marker a base_link)
+        # Trasformazione TF se necessaria
         if source_frame != target_frame_for_ik:
             try:
-                # Esegue il lookup basandosi sull'ultimo frame disponibile (grazie a Time 0)
                 pose = self.tf_buffer.transform(
                     pose, target_frame_for_ik,
-                    timeout=rclpy.duration.Duration(seconds=2.0)
+                    timeout=rclpy.duration.Duration(seconds=1.0)
                 )
             except TransformException as ex:
                 self.get_logger().error(
                     f"TF error per '{task_name}': {ex}. Salto."
                 )
                 return False
-
-        # CORREZIONE AGGIUNTIVA: Aggiorniamo il timestamp col tempo di clock attuale 
-        # PRIMA di pubblicare il target, così il nodo di cinematica inversa (IK) 
-        # riceve un messaggio fresco e valido per la simulazione corrente.
-        pose.header.stamp = self.get_clock().now().to_msg()
 
         # Publish + attesa feedback
         self.ik_action_result_received = False
@@ -261,7 +255,7 @@ class TaskExecutorNode(Node):
             response.message = "Impossibile caricare le pose."
             return response
 
-        target_frame_for_ik = self.target_frame
+        target_frame_for_ik = 'base_link'
         success_count = 0
         fail_count    = 0
 
@@ -308,7 +302,8 @@ class TaskExecutorNode(Node):
             f"{success_count} OK, {fail_count} failed."
         )
         return response
- 
+
+
 def main(args=None):
     rclpy.init(args=args)
     node = TaskExecutorNode()
@@ -326,3 +321,4 @@ def main(args=None):
 
 if __name__ == '__main__':
     main()
+    
