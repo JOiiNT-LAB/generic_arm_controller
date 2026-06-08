@@ -1,14 +1,15 @@
+#!/usr/bin/env python3
 import rclpy
 from rclpy.node import Node
 from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
-from rclpy.action import ActionClient  # <--- NUOVO: Import per gestire l'azione Robotiq
+from rclpy.action import ActionClient
 
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 from ur_msgs.srv import GripperCommand as GripperSrv
-from control_msgs.action import GripperCommand as GripperAction # <--- NUOVO: Tipo di azione ufficiale
+from control_msgs.action import GripperCommand as GripperAction
 
-# FIX 3: import QB protetto
+# FIX 3: protected QB import
 try:
     from qb_softhand_industry_srvs.srv import SetCommand
     QB_AVAILABLE = True
@@ -20,9 +21,9 @@ RG2_MAX_WIDTH_M  = 0.085
 SOFTHAND_MIN_POS = 0
 SOFTHAND_MAX_POS = 3500
 
-# NUOVO: Limiti cinematici Robotiq 2F-85 in Gazebo/ROS 2 Control
-ROBOTIQ_MIN_POS  = 0.0  # Aperta
-ROBOTIQ_MAX_POS  = 0.8  # Chiusa completamente
+# Kinematic limits Robotiq 2F-85 in Gazebo/ROS 2 Control
+ROBOTIQ_MIN_POS  = 0.0  # Open
+ROBOTIQ_MAX_POS  = 0.8  # Fully Closed
 
 
 class GripperManager(Node):
@@ -40,7 +41,7 @@ class GripperManager(Node):
             10,
         )
 
-        # --- SoftHand client (solo se pacchetto disponibile) ---
+        # --- SoftHand client (only if package available) ---
         self.softhand_client = None
         if QB_AVAILABLE:
             self.softhand_client = self.create_client(
@@ -51,19 +52,19 @@ class GripperManager(Node):
             self.get_logger().info('SoftHand client created.')
         else:
             self.get_logger().warn(
-                'qb_softhand_industry_srvs non trovato. SoftHand disabilitato.'
+                'qb_softhand_industry_srvs not found. SoftHand disabled.'
             )
 
-        # --- NUOVO: Robotiq Action Client ---
+        # --- Robotiq Action Client ---
         self.robotiq_client = ActionClient(
             self,
             GripperAction,
             '/robotiq_gripper_controller/gripper_cmd',
             callback_group=self.cb_group
         )
-        self.get_logger().info('Robotiq Action Client inizializzato.')
+        self.get_logger().info('Robotiq Action Client initialized.')
 
-        # --- Servizio ROS ---
+        # --- ROS Service ---
         self.service = self.create_service(
             GripperSrv,
             '/gripper/command',
@@ -87,8 +88,8 @@ class GripperManager(Node):
         if position is None:
             response.success = False
             response.message = (
-                f"Comando '{cmd}' non valido. "
-                "Usa 'open', 'close' oppure 'move' con position in [0.0, 1.0]."
+                f"Invalid command '{cmd}'. "
+                "Use 'open', 'close', or 'move' with position in [0.0, 1.0]."
             )
             self.get_logger().error(response.message)
             return response
@@ -105,22 +106,22 @@ class GripperManager(Node):
         elif gripper_type == 'softhand':
             return self._handle_softhand(position, response)
         elif gripper_type == 'robotiq':
-            return self._handle_robotiq(position, response) # <--- NUOVO indirizzamento
+            return self._handle_robotiq(position, response)
         else:
             response.success = False
-            response.message = f"Tipo gripper sconosciuto: '{gripper_type}'"
+            response.message = f"Unknown gripper type: '{gripper_type}'"
             self.get_logger().error(response.message)
             return response
 
     # =========================================================
-    # RISOLUZIONE POSIZIONE
+    # POSITION RESOLUTION
     # =========================================================
 
     def _resolve_position(self, cmd: str, raw_position: float):
         if cmd == 'open':
-            return 1.0  # Convenzione logica: 1.0 = Completamente Aperto
+            return 1.0  # Logic convention: 1.0 = Fully Open
         elif cmd == 'close':
-            return 0.0  # Convenzione logica: 0.0 = Completamente Chiuso
+            return 0.0  # Logic convention: 0.0 = Fully Closed
         elif cmd == 'move':
             return max(0.0, min(1.0, float(raw_position)))
         return None
@@ -158,13 +159,13 @@ class GripperManager(Node):
     def _handle_softhand(self, position: float, response):
         if not QB_AVAILABLE or self.softhand_client is None:
             response.success = False
-            response.message = 'SoftHand non disponibile (pacchetto QB non installato).'
+            response.message = 'SoftHand not available (QB package not installed).'
             self.get_logger().error(response.message)
             return response
 
         if not self.softhand_client.service_is_ready():
             response.success = False
-            response.message = 'SoftHand service non disponibile.'
+            response.message = 'SoftHand service not available.'
             self.get_logger().error(response.message)
             return response
 
@@ -186,7 +187,7 @@ class GripperManager(Node):
             time.sleep(0.01)
             if time.time() - start > timeout:
                 response.success = False
-                response.message = f'Timeout SoftHand ({timeout:.1f} s).'
+                response.message = f'SoftHand timeout ({timeout:.1f} s).'
                 self.get_logger().warn(response.message)
                 return response
 
@@ -204,69 +205,61 @@ class GripperManager(Node):
         return response
 
     # =========================================================
-    # NUOVO: ROBOTIQ (Gestione asincrona Action Server non bloccante)
+    # ROBOTIQ
     # =========================================================
 
     def _handle_robotiq(self, position: float, response):
         if not self.robotiq_client.wait_for_server(timeout_sec=2.0):
             response.success = False
-            response.message = 'Action server della Robotiq non disponibile!'
+            response.message = 'Robotiq action server not available!'
             self.get_logger().error(response.message)
             return response
 
-        # Mappatura della posizione:
-        # La tua richiesta logica ragiona: 1.0 = Aperto, 0.0 = Chiuso.
-        # Il GripperCommand dell'action server ragiona: 0.0 = Aperto, 0.8 = Chiuso.
-        # Invertiamo la posizione scalando sul range corretto:
         robotiq_pos = ROBOTIQ_MAX_POS - position * (ROBOTIQ_MAX_POS - ROBOTIQ_MIN_POS)
 
         goal_msg = GripperAction.Goal()
         goal_msg.command.position = robotiq_pos
-        goal_msg.command.max_effort = 100.0  # Forza di presa
+        goal_msg.command.max_effort = 100.0  # Grasping force
 
-        self.get_logger().info(f'[Robotiq] Invio goal posizione: {robotiq_pos:.3f}')
+        self.get_logger().info(f'[Robotiq] Sending goal position: {robotiq_pos:.3f}')
         
-        # Inviamo la richiesta del goal asincrona
         send_goal_future = self.robotiq_client.send_goal_async(goal_msg)
 
         import time
         timeout = 5.0
         start = time.time()
 
-        # 1. Attesa accettazione goal dal server
         while not send_goal_future.done():
             time.sleep(0.01)
             if time.time() - start > timeout:
                 response.success = False
-                response.message = 'Timeout accettazione goal Robotiq.'
+                response.message = 'Robotiq goal acceptance timeout.'
                 return response
 
         goal_handle = send_goal_future.result()
         if not goal_handle.accepted:
             response.success = False
-            response.message = 'Goal Robotiq rifiutato dall\'action server.'
+            response.message = 'Robotiq goal rejected by action server.'
             return response
 
-        # 2. Attesa del risultato finale dell'azione (movimento completato)
         get_result_future = goal_handle.get_result_async()
         while not get_result_future.done():
             time.sleep(0.01)
             if time.time() - start > timeout:
                 response.success = False
-                response.message = 'Timeout completamento movimento Robotiq.'
+                response.message = 'Robotiq movement completion timeout.'
                 return response
 
-        self.get_logger().info(f'[Robotiq] Movimento completato con successo.')
+        self.get_logger().info(f'[Robotiq] Movement completed successfully.')
         response.success = True
-        response.message = f'Robotiq posizionata a {robotiq_pos:.2f} (Input logico: {position:.2f})'
+        response.message = f'Robotiq set to {robotiq_pos:.2f} (Logical input: {position:.2f})'
         return response
 
     # =========================================================
-    # AUTO SELECT (Ottimizzato per rilevare la Robotiq)
+    # AUTO SELECT
     # =========================================================
 
     def _auto_select(self) -> str:
-        # Se l'action server della Robotiq è visibile sulla rete ROS 2, la usa come scelta primaria
         if self.robotiq_client.server_is_ready():
             return 'robotiq'
         return 'rg2'

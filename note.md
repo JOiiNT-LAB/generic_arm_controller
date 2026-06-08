@@ -153,7 +153,7 @@ Ho inserito tutto i commandi anche di linguaggio naturale in unico launcher, Que
 # Avvia senza dispositivi (simulazione)
 
 
-ros2 launch ur10e_ros2 robot_vision_ik_traj_setup.launch.py
+ros2 launch generic_arm_controller robot_vision_ik_traj_setup.launch.py
 
 # Avvia con realsense
 ros2 launch ur10e_ros2 robot_vision_ik_traj_setup.launch.py enable_realsense:=true
