@@ -78,6 +78,11 @@ def generate_launch_description():
         default_value='true',  # Cambia a 'false' se vuoi disabilitare la pinza di default
         description='Enable Robotiq gripper'
     )
+    enable_llm_arg = DeclareLaunchArgument(
+        'enable_llm',
+        default_value='true',
+        description='Enable LLM app (richiede launch_pal installato)'
+    )
     target_frame_arg = DeclareLaunchArgument(
         'target_frame',
         default_value='base_link',
@@ -233,8 +238,9 @@ def generate_launch_description():
     )
 
     llm_app_delayed = TimerAction(
-        period=3.0,          # secondi di attesa — aumenta a 5.0 se necessario
+        period=3.0,
         actions=[llm_app_launch],
+        condition=IfCondition(LaunchConfiguration('enable_llm')),
     )
 
     # -----------------------------------------------------------------------
@@ -247,6 +253,7 @@ def generate_launch_description():
         enable_realsense_arg,
         enable_qb_arg,
         enable_robotiq_gripper_arg,
+        enable_llm_arg,
         target_frame_arg,
         # 1. TF statica calibrazione (non ha dipendenze)
         static_tf_node,
