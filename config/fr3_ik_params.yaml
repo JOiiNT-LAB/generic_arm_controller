@@ -1,0 +1,34 @@
+/**:
+  ros__parameters:
+
+    # ----- Robot description -----
+    urdf_package: "franka_description"   # pacchetto ROS con l'URDF/xacro
+    robot_type: "fr3"                    # tipo robot (fr3, fer, fp3, ...)
+
+    # ----- Cinematica -----
+    end_effector_frame: "fr3_hand_tcp"    # frame end-effector nel modello Pinocchio (con Franka Hand)
+    joint_names:
+      - "fr3_joint1"
+      - "fr3_joint2"
+      - "fr3_joint3"
+      - "fr3_joint4"
+      - "fr3_joint5"
+      - "fr3_joint6"
+      - "fr3_joint7"
+
+    # ----- Action server -----
+    # spawnato da tools_config/launch/fr3_gz_traj.launch.py (vedi tools_config/config/fr3_controllers_gz.yaml)
+    action_server_name: "/joint_trajectory_controller/follow_joint_trajectory"
+    # ----- Topics -----
+    pose_topic:         "/target_cartesian_pose"
+    joint_states_topic: "/joint_states"
+    ik_result_topic:    "/ik_action_result"
+
+    # ----- IK solver -----
+    ik_tolerance:  0.001    # soglia di convergenza (m / rad)
+    ik_max_iter:   4000     # iterazioni massime
+    ik_dt:         0.1      # passo di integrazione
+    ik_damping:    0.05     # damping per minimi quadrati smorzati
+
+    # ----- Traiettoria -----
+    trajectory_duration: 3.0  # secondi

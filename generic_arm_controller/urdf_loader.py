@@ -47,22 +47,30 @@ def build_pinocchio_urdf(
         log_err(f"Package '{urdf_package}' not found: {e}")
         raise
 
-    xacro_path = os.path.join(pkg_share, 'urdf', 'ur.urdf.xacro')
-    mesh_dir   = os.path.join(pkg_share, 'meshes')
     raw_urdf   = f'/tmp/{robot_type}_pinocchio_raw.urdf'
     final_urdf = f'/tmp/{robot_type}_pinocchio_final.urdf'
+    is_franka  = urdf_package == 'franka_description'
 
-    # Build xacro command
-    xacro_cmd = [
-        'ros2', 'run', 'xacro', 'xacro', xacro_path,
-        f'ur_type:={robot_type}',
-        f'name:={robot_type}',
-        'transmission_hw_interface:=""',
-        'sim_gazebo:=false',
-        'sim_ignition:=false',
-        'use_fake_hardware:=false',
-        'headless_mode:=false',
-    ]
+    if is_franka:
+        xacro_path = os.path.join(pkg_share, 'robots', robot_type, f'{robot_type}.urdf.xacro')
+        xacro_cmd = [
+            'ros2', 'run', 'xacro', 'xacro', xacro_path,
+            f'robot_type:={robot_type}',
+            'hand:=true',
+            'ee_id:=franka_hand',
+        ]
+    else:
+        xacro_path = os.path.join(pkg_share, 'urdf', 'ur.urdf.xacro')
+        xacro_cmd = [
+            'ros2', 'run', 'xacro', 'xacro', xacro_path,
+            f'ur_type:={robot_type}',
+            f'name:={robot_type}',
+            'transmission_hw_interface:=""',
+            'sim_gazebo:=false',
+            'sim_ignition:=false',
+            'use_fake_hardware:=false',
+            'headless_mode:=false',
+        ]
 
     if extra_xacro_args:
         for k, v in extra_xacro_args.items():
@@ -76,18 +84,21 @@ def build_pinocchio_urdf(
         log_err(f'xacro failed: {e.stderr.decode()}')
         raise
 
-    # Replace package:// mesh URIs with absolute paths
     with open(raw_urdf, 'r') as f:
         content = f.read()
 
-    for subfolder in ('visual', 'collision'):
-        content = re.sub(
-            rf'filename="package://{urdf_package}/meshes/{robot_type}/{subfolder}/([^"]+)"',
-            lambda m, sf=subfolder: (
-                f'filename="{os.path.join(mesh_dir, robot_type, sf, m.group(1))}"'
-            ),
-            content,
-        )
+    # pin.buildModelFromUrdf() (usato da fk/ik node) non carica le mesh: la sostituzione
+    # package://->path assoluto serve solo per il layout ur_description.
+    if not is_franka:
+        mesh_dir = os.path.join(pkg_share, 'meshes')
+        for subfolder in ('visual', 'collision'):
+            content = re.sub(
+                rf'filename="package://{urdf_package}/meshes/{robot_type}/{subfolder}/([^"]+)"',
+                lambda m, sf=subfolder: (
+                    f'filename="{os.path.join(mesh_dir, robot_type, sf, m.group(1))}"'
+                ),
+                content,
+            )
 
     with open(final_urdf, 'w') as f:
         f.write(content)

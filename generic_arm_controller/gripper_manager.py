@@ -25,6 +25,11 @@ SOFTHAND_MAX_POS = 3500
 ROBOTIQ_MIN_POS  = 0.0  # Open
 ROBOTIQ_MAX_POS  = 0.8  # Fully Closed
 
+# Franka Hand: apertura pinza in metri (a differenza del Robotiq, qui la convenzione
+# non è invertita: 0.0 = chiuso, larghezza massima = aperto)
+FRANKA_HAND_MIN_WIDTH = 0.0    # Closed
+FRANKA_HAND_MAX_WIDTH = 0.08   # Open
+
 
 class GripperManager(Node):
 
@@ -63,6 +68,15 @@ class GripperManager(Node):
             callback_group=self.cb_group
         )
         self.get_logger().info('Robotiq Action Client initialized.')
+
+        # --- Franka Hand Action Client (stesso action type del Robotiq) ---
+        self.franka_hand_client = ActionClient(
+            self,
+            GripperAction,
+            '/franka_gripper/gripper_action',
+            callback_group=self.cb_group
+        )
+        self.get_logger().info('Franka Hand Action Client initialized.')
 
         # --- ROS Service ---
         self.service = self.create_service(
@@ -107,6 +121,8 @@ class GripperManager(Node):
             return self._handle_softhand(position, response)
         elif gripper_type == 'robotiq':
             return self._handle_robotiq(position, response)
+        elif gripper_type == 'franka_hand':
+            return self._handle_franka_hand(position, response)
         else:
             response.success = False
             response.message = f"Unknown gripper type: '{gripper_type}'"
@@ -256,12 +272,67 @@ class GripperManager(Node):
         return response
 
     # =========================================================
+    # FRANKA HAND
+    # =========================================================
+
+    def _handle_franka_hand(self, position: float, response):
+        if not self.franka_hand_client.wait_for_server(timeout_sec=2.0):
+            response.success = False
+            response.message = 'Franka Hand action server not available!'
+            self.get_logger().error(response.message)
+            return response
+
+        franka_width = FRANKA_HAND_MIN_WIDTH + position * (
+            FRANKA_HAND_MAX_WIDTH - FRANKA_HAND_MIN_WIDTH
+        )
+
+        goal_msg = GripperAction.Goal()
+        goal_msg.command.position = franka_width
+        goal_msg.command.max_effort = 20.0  # Grasping force (N)
+
+        self.get_logger().info(f'[FrankaHand] Sending goal width: {franka_width:.3f} m')
+
+        send_goal_future = self.franka_hand_client.send_goal_async(goal_msg)
+
+        import time
+        timeout = 5.0
+        start = time.time()
+
+        while not send_goal_future.done():
+            time.sleep(0.01)
+            if time.time() - start > timeout:
+                response.success = False
+                response.message = 'Franka Hand goal acceptance timeout.'
+                return response
+
+        goal_handle = send_goal_future.result()
+        if not goal_handle.accepted:
+            response.success = False
+            response.message = 'Franka Hand goal rejected by action server.'
+            return response
+
+        get_result_future = goal_handle.get_result_async()
+        while not get_result_future.done():
+            time.sleep(0.01)
+            if time.time() - start > timeout:
+                response.success = False
+                response.message = 'Franka Hand movement completion timeout.'
+                return response
+
+        self.get_logger().info('[FrankaHand] Movement completed successfully.')
+        response.success = True
+        response.message = f'FrankaHand set to {franka_width:.3f} m (Logical input: {position:.2f})'
+        return response
+
+    # =========================================================
     # AUTO SELECT
     # =========================================================
 
     def _auto_select(self) -> str:
         if self.robotiq_client.server_is_ready():
             return 'robotiq'
+        if self.franka_hand_client.server_is_ready():
+            return 'franka_hand'
         return 'rg2'
 
 
