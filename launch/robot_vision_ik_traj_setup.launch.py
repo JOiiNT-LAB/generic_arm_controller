@@ -73,11 +73,6 @@ def generate_launch_description():
         default_value='false',
         description='Enable QBSofthand gripper'
     )
-    enable_robotiq_gripper_arg = DeclareLaunchArgument(
-        'enable_robotiq_gripper',
-        default_value='true',  # Cambia a 'false' se vuoi disabilitare la pinza di default
-        description='Enable Robotiq gripper'
-    )
     enable_llm_arg = DeclareLaunchArgument(
         'enable_llm',
         default_value='true',
@@ -192,17 +187,10 @@ def generate_launch_description():
         condition=IfCondition(LaunchConfiguration('enable_qb')),
     )
     
-    # -----------------------------------------------------------------------
-    # NUOVO: Spawner Automatico del Controller della Pinza (Simulata/Reale)
-    # Gira solo se la pinza viene abilitata tramite l'argomento enable_qb
-    # -----------------------------------------------------------------------
-    spawn_robotiq_gripper_controller = Node(
-        package="controller_manager",
-        executable="spawner",
-        arguments=["robotiq_gripper_controller", "-c", "/controller_manager"],
-        output="screen",
-        condition=IfCondition(LaunchConfiguration('enable_robotiq_gripper')),
-    )
+    # Lo spawn dei controller ros2_control (incluso il gripper) è responsabilità del
+    # bringup Gazebo per-robot (arm_gz_bringup/launch/<robot>.launch.py), non di questo
+    # launch: qui gira solo la logica di controllo (IK/FK/gripper/task), indipendente
+    # da dove/come il robot è effettivamente pilotato (sim o reale).
 
     aruco_detect_node = Node(
         package='aruco_ros',
@@ -255,7 +243,6 @@ def generate_launch_description():
         # Argomenti
         enable_realsense_arg,
         enable_qb_arg,
-        enable_robotiq_gripper_arg,
         enable_llm_arg,
         robot_arg,
         # 1. TF statica calibrazione (non ha dipendenze)
@@ -275,8 +262,7 @@ def generate_launch_description():
         # 5. Periferiche opzionali
         realsense_launch,
         qb_launch,
-        spawn_robotiq_gripper_controller,  # <--- INSERITO QUI
-        aruco_detect_node,  # <--- INSERITO QUI
+        aruco_detect_node,
         # 6. llm_app — ULTIMO, con ritardo esplicito
         llm_app_delayed,
     ])

@@ -1,4 +1,4 @@
-# Profilo robot: Franka Research 3 (Gazebo Sim, franka_gazebo_bringup + tools_config)
+# Profilo robot: Franka Research 3 (Gazebo Sim, franka_gazebo_bringup + arm_gz_bringup)
 # Un solo file passato a fk_node, ik_trajectory_node, gripper_node e
 # task_executor_node_complete - ognuno legge solo i campi che dichiara.
 /**:
@@ -26,8 +26,8 @@
       - "fr3_joint7"
 
     # ----- Action server / topic -----
-    # joint_trajectory_controller aggiunto a runtime da tools_config/launch/fr3_gz_traj.launch.py
-    # (franka_gazebo_bringup non lo espone di default - vedi tools_config/config/fr3_controllers_gz.yaml)
+    # joint_trajectory_controller aggiunto a runtime da arm_gz_bringup/launch/fr3.launch.py
+    # (franka_gazebo_bringup non lo espone di default - vedi arm_gz_bringup/config/fr3_controllers_gz.yaml)
     action_server_name: "/joint_trajectory_controller/follow_joint_trajectory"
     pose_topic:         "/target_cartesian_pose"
     joint_states_topic: "/joint_states"
