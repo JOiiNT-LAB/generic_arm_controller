@@ -25,6 +25,8 @@ class IKTrajectoryNode(Node):
     ----------
     urdf_package        : str   — ROS package containing the URDF/xacro (default: 'ur_description')
     robot_type          : str   — Robot type passed to xacro, e.g. 'ur10e', 'ur5e' (default: 'ur10e')
+    xacro_relative_path : str   — Path to the xacro file, relative to urdf_package's share dir
+    xacro_args          : list  — xacro arguments as "name:=value" strings
     end_effector_frame  : str   — Pinocchio frame name for the end-effector (default: 'tool0')
     joint_names         : list  — Ordered joint names for the controller
     action_server_name  : str   — FollowJointTrajectory action server topic
@@ -46,6 +48,12 @@ class IKTrajectoryNode(Node):
         # ------------------------------------------------------------------ #
         self.declare_parameter('urdf_package', 'ur_description')
         self.declare_parameter('robot_type', 'ur10e')
+        self.declare_parameter('xacro_relative_path', 'urdf/ur.urdf.xacro')
+        self.declare_parameter('xacro_args', [
+            'ur_type:=ur10e', 'name:=ur10e', 'transmission_hw_interface:=""',
+            'sim_gazebo:=false', 'sim_ignition:=false',
+            'use_fake_hardware:=false', 'headless_mode:=false',
+        ])
         self.declare_parameter('end_effector_frame', 'tool0')
         self.declare_parameter('joint_names', [
             'shoulder_pan_joint',
@@ -71,8 +79,10 @@ class IKTrajectoryNode(Node):
         # ------------------------------------------------------------------ #
         # Read parameters
         # ------------------------------------------------------------------ #
-        urdf_package       = self.get_parameter('urdf_package').value
-        robot_type         = self.get_parameter('robot_type').value
+        urdf_package         = self.get_parameter('urdf_package').value
+        robot_type           = self.get_parameter('robot_type').value
+        xacro_relative_path  = self.get_parameter('xacro_relative_path').value
+        xacro_args           = list(self.get_parameter('xacro_args').value)
         self.ee_frame_name = self.get_parameter('end_effector_frame').value
         self.joint_names   = list(self.get_parameter('joint_names').value)
         action_server_name = self.get_parameter('action_server_name').value
@@ -97,6 +107,8 @@ class IKTrajectoryNode(Node):
         urdf_path = build_pinocchio_urdf(
             urdf_package=urdf_package,
             robot_type=robot_type,
+            xacro_relative_path=xacro_relative_path,
+            xacro_args=xacro_args,
             logger=self.get_logger(),
         )
 

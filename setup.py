@@ -17,7 +17,8 @@ setup(
         (os.path.join('share', package_name, 'launch/robots'), glob(os.path.join('launch/robots', '*.launch.py'))),
         (os.path.join('share', package_name, 'launch/grippers'), glob(os.path.join('launch/grippers', '*.launch.py'))),
         (os.path.join('share', package_name, 'launch/sensors'), glob(os.path.join('launch/sensors', '*.launch.py'))),
-        (os.path.join('share', package_name, 'config'), glob(os.path.join('config', '*'))),
+        (os.path.join('share', package_name, 'config'), glob(os.path.join('config', '*.yaml'))),
+        (os.path.join('share', package_name, 'config/robots'), glob(os.path.join('config/robots', '*.yaml'))),
         (os.path.join('share', package_name, 'calibration_results'), glob(os.path.join('calibration_results', '*'))),
     ],
 

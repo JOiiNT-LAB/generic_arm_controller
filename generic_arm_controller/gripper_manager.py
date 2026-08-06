@@ -36,6 +36,11 @@ class GripperManager(Node):
     def __init__(self):
         super().__init__('gripper_manager')
 
+        # Gripper di default per il robot corrente (dal profilo robot), usato quando la
+        # richiesta di servizio non specifica gripper_type (o lo lascia 'auto').
+        self.declare_parameter('default_gripper_type', 'auto')
+        self.default_gripper_type = self.get_parameter('default_gripper_type').value
+
         # FIX DEADLOCK: ReentrantCallbackGroup + MultiThreadedExecutor
         self.cb_group = ReentrantCallbackGroup()
 
@@ -113,7 +118,11 @@ class GripperManager(Node):
         )
 
         if gripper_type == 'auto':
-            gripper_type = self._auto_select()
+            gripper_type = (
+                self.default_gripper_type
+                if self.default_gripper_type != 'auto'
+                else self._auto_select()
+            )
 
         if gripper_type == 'rg2':
             return self._handle_rg2(position, response)

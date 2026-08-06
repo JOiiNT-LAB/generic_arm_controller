@@ -1,0 +1,47 @@
+# Profilo robot: Franka Research 3 (Gazebo Sim, franka_gazebo_bringup + tools_config)
+# Un solo file passato a fk_node, ik_trajectory_node, gripper_node e
+# task_executor_node_complete - ognuno legge solo i campi che dichiara.
+/**:
+  ros__parameters:
+
+    # ----- Descrizione / xacro -----
+    urdf_package: "franka_description"
+    robot_type: "fr3"
+    xacro_relative_path: "robots/fr3/fr3.urdf.xacro"
+    xacro_args:
+      - "robot_type:=fr3"
+      - "hand:=true"
+      - "ee_id:=franka_hand"
+
+    # ----- Cinematica -----
+    end_effector_frame: "fr3_hand_tcp"    # con Franka Hand (hand:=true). Senza gripper: "fr3_link8"
+    base_frame: "fr3_link0"
+    joint_names:
+      - "fr3_joint1"
+      - "fr3_joint2"
+      - "fr3_joint3"
+      - "fr3_joint4"
+      - "fr3_joint5"
+      - "fr3_joint6"
+      - "fr3_joint7"
+
+    # ----- Action server / topic -----
+    # joint_trajectory_controller aggiunto a runtime da tools_config/launch/fr3_gz_traj.launch.py
+    # (franka_gazebo_bringup non lo espone di default - vedi tools_config/config/fr3_controllers_gz.yaml)
+    action_server_name: "/joint_trajectory_controller/follow_joint_trajectory"
+    pose_topic:         "/target_cartesian_pose"
+    joint_states_topic: "/joint_states"
+    ik_result_topic:    "/ik_action_result"
+    fk_pose_topic:      "/fk_pose"
+
+    # ----- IK solver -----
+    ik_tolerance:  0.001
+    ik_max_iter:   4000
+    ik_dt:         0.1
+    ik_damping:    0.05
+
+    # ----- Traiettoria -----
+    trajectory_duration: 3.0
+
+    # ----- Gripper -----
+    default_gripper_type: "franka_hand"

@@ -26,6 +26,12 @@ class TaskExecutorNode(Node):
         super().__init__('task_executor_node')
         self.get_logger().info('Task Executor Node Started.')
 
+        # Frame in cui ik_trajectory_node calcola l'IK (stesso significato di
+        # base_frame per fk_node - riusa il campo del profilo robot invece di
+        # duplicarlo come "target_frame").
+        self.declare_parameter('base_frame', 'base_link')
+        self.target_frame_for_ik = self.get_parameter('base_frame').value
+
         self.reentrant_callback_group = ReentrantCallbackGroup()
 
         # TF2
@@ -174,7 +180,8 @@ class TaskExecutorNode(Node):
     # Esecuzione task movimento (IK)
     # ------------------------------------------------------------------
 
-    def _execute_move_task(self, task_data: dict, target_frame_for_ik: str) -> bool:
+    def _execute_move_task(self, task_data: dict) -> bool:
+        target_frame_for_ik = self.target_frame_for_ik
         task_name = task_data.get('task_name', 'Unnamed')
 
         pose = PoseStamped()
@@ -255,7 +262,6 @@ class TaskExecutorNode(Node):
             response.message = "Impossibile caricare le pose."
             return response
 
-        target_frame_for_ik = 'base_link'
         success_count = 0
         fail_count    = 0
 
@@ -274,7 +280,7 @@ class TaskExecutorNode(Node):
                 ok = self._execute_gripper_task(task_data)
                 default_sleep = 1.5 
             elif task_type == 'move':
-                ok = self._execute_move_task(task_data, target_frame_for_ik)
+                ok = self._execute_move_task(task_data)
                 default_sleep = 0.0
             else:
                 self.get_logger().warn(

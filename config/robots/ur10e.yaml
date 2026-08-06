@@ -1,0 +1,48 @@
+# Profilo robot: UR10e (Gazebo Sim, ur_simulation_gz)
+# Un solo file passato a fk_node, ik_trajectory_node, gripper_node e
+# task_executor_node_complete - ognuno legge solo i campi che dichiara.
+/**:
+  ros__parameters:
+
+    # ----- Descrizione / xacro -----
+    urdf_package: "ur_description"
+    robot_type: "ur10e"
+    xacro_relative_path: "urdf/ur.urdf.xacro"
+    xacro_args:
+      - "ur_type:=ur10e"
+      - "name:=ur10e"
+      - 'transmission_hw_interface:=""'
+      - "sim_gazebo:=false"
+      - "sim_ignition:=false"
+      - "use_fake_hardware:=false"
+      - "headless_mode:=false"
+
+    # ----- Cinematica -----
+    end_effector_frame: "tool0"
+    base_frame: "base_link"
+    joint_names:
+      - "shoulder_pan_joint"
+      - "shoulder_lift_joint"
+      - "elbow_joint"
+      - "wrist_1_joint"
+      - "wrist_2_joint"
+      - "wrist_3_joint"
+
+    # ----- Action server / topic -----
+    action_server_name: "/joint_trajectory_controller/follow_joint_trajectory"
+    pose_topic:         "/target_cartesian_pose"
+    joint_states_topic: "/joint_states"
+    ik_result_topic:    "/ik_action_result"
+    fk_pose_topic:      "/fk_pose"
+
+    # ----- IK solver -----
+    ik_tolerance:  0.001
+    ik_max_iter:   4000
+    ik_dt:         0.1
+    ik_damping:    0.05
+
+    # ----- Traiettoria -----
+    trajectory_duration: 3.0
+
+    # ----- Gripper -----
+    default_gripper_type: "robotiq"

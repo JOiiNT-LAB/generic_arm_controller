@@ -83,11 +83,22 @@ def generate_launch_description():
         default_value='true',
         description='Enable LLM app (richiede launch_pal installato)'
     )
-    target_frame_arg = DeclareLaunchArgument(
-        'target_frame',
-        default_value='base_link',
-        description='Target TF frame for IK trajectory execution'
+    robot_arg = DeclareLaunchArgument(
+        'robot',
+        default_value='ur10e',
+        description=(
+            'Profilo robot da usare (config/robots/<robot>.yaml) - deve esistere '
+            'il file corrispondente, es. ur10e, fr3.'
+        )
     )
+
+    # Un solo file di parametri per robot, condiviso da fk_node/ik_trajectory_node/
+    # gripper_node/task_executor_node_complete: ognuno legge solo i campi che dichiara.
+    robot_profile = PathJoinSubstitution([
+        FindPackageShare('generic_arm_controller'),
+        'config', 'robots',
+        [LaunchConfiguration('robot'), '.yaml'],
+    ])
 
     # -----------------------------------------------------------------------
     # Nodi hardware / TF — partono subito
@@ -103,6 +114,7 @@ def generate_launch_description():
         # respawn=False è il default; lo esplicitiamo così il crash è visibile
         # invece di venire mascherato da un respawn silenzioso.
         respawn=False,
+        parameters=[robot_profile],
     )
 
     ik_node = Node(
@@ -111,13 +123,7 @@ def generate_launch_description():
         name='ik_trajectory_node',
         output='screen',
         respawn=False,
-        parameters=[
-            PathJoinSubstitution([
-                FindPackageShare('generic_arm_controller'),
-                'config',
-                'ik_trajectory_node_params.yaml',
-            ])
-        ],
+        parameters=[robot_profile],
     )
 
     # -----------------------------------------------------------------------
@@ -135,6 +141,7 @@ def generate_launch_description():
         name='gripper_node',
         output='screen',
         respawn=False,
+        parameters=[robot_profile],
         # Rimuovi la condition se il nodo deve girare sempre (RG2 standalone).
         # In quel caso devi proteggere l'import QB con try/except nel py.
         # condition=IfCondition(LaunchConfiguration('enable_qb')),
@@ -150,11 +157,7 @@ def generate_launch_description():
         name='task_executor_node_complete',
         output='screen',
         respawn=False,
-        parameters=[
-            {
-                'target_frame': LaunchConfiguration('target_frame'),
-            }
-        ],
+        parameters=[robot_profile],
     )
 
     task_saving_node = Node(
@@ -254,7 +257,7 @@ def generate_launch_description():
         enable_qb_arg,
         enable_robotiq_gripper_arg,
         enable_llm_arg,
-        target_frame_arg,
+        robot_arg,
         # 1. TF statica calibrazione (non ha dipendenze)
         static_tf_node,
 
