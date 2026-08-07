@@ -70,13 +70,13 @@ Meno evidente con telecamera eye-in-hand: La posa salvata descrive una relazione
 
 
 ```
-ros2 service call /save_pose ur_msgs/srv/SavePose "{save_mode: 0, task_name: 'home_pose', reference_frame: ''}"
+ros2 service call /save_pose generic_arm_interfaces/srv/SavePose "{save_mode: 0, task_name: 'home_pose', reference_frame: ''}"
 ```
 ```
-ros2 service call /save_pose ur_msgs/srv/SavePose "{save_mode: 1, task_name: 'pre_grasp_from_camera', reference_frame: ''}"
+ros2 service call /save_pose generic_arm_interfaces/srv/SavePose "{save_mode: 1, task_name: 'pre_grasp_from_camera', reference_frame: ''}"
 ```
 ```
-ros2 service call /save_pose ur_msgs/srv/SavePose "{save_mode: 2, task_name: 'pick_aruco_dynamic', reference_frame: 'aruco_marker_frame'}"
+ros2 service call /save_pose generic_arm_interfaces/srv/SavePose "{save_mode: 2, task_name: 'pick_aruco_dynamic', reference_frame: 'aruco_marker_frame'}"
 
 ```
 
@@ -131,8 +131,8 @@ max 3500 min 0
 
 Aggiunto i servizi al launcher dell ur
 ```
- ros2 service call /gripper_control ur_msgs/srv/GripperCommand "{command: 'close'}"
- ros2 service call /gripper_control ur_msgs/srv/GripperCommand "{command: 'open'}"
+ ros2 service call /gripper/command generic_arm_interfaces/srv/GripperCommand "{command: 'close'}"
+ ros2 service call /gripper/command generic_arm_interfaces/srv/GripperCommand "{command: 'open'}"
 ```
 
 

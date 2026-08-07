@@ -10,7 +10,7 @@ from rclpy.action import ActionClient
 from std_msgs.msg import Float64MultiArray
 from sensor_msgs.msg import JointState
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
-from ur_msgs.srv import GripperCommand as GripperSrv
+from generic_arm_interfaces.srv import GripperCommand as GripperSrv
 from control_msgs.action import GripperCommand as GripperAction
 
 # FIX 3: protected QB import

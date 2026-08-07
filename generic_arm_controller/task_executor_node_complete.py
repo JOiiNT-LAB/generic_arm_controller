@@ -18,7 +18,7 @@ from tf2_ros.buffer import Buffer
 from tf2_ros.transform_listener import TransformListener
 import tf2_geometry_msgs
 
-from ur_msgs.srv import GripperCommand as GripperSrv
+from generic_arm_interfaces.srv import GripperCommand as GripperSrv
 
 
 class TaskExecutorNode(Node):

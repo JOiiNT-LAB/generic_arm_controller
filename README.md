@@ -35,7 +35,7 @@ This package provides a modular and generic control system for robotic arms (UR,
 | **Vision** | RealSense RGB-D camera | `rs_launch.py` |
 | **ArUco Detection** | Marker recognition | `aruco_ros/single.launch.py` |
 | **Task Manager** | Save/execute sequences | `task_saving_node_complete`, `task_executor_node_complete` |
-| **Gripper** | Gripper control | `/gripper_control` service |
+| **Gripper** | Gripper control | `/gripper/command` service |
 | **LLM Interface** | Interactive chat | `llm_app/chatlive` |
 
 ---
@@ -161,7 +161,7 @@ The system supports 3 save modes:
 Saves fixed poses relative to the robot base. Ideal for predefined positions.
 
 ```bash
-ros2 service call /save_pose ur_msgs/srv/SavePose \
+ros2 service call /save_pose generic_arm_interfaces/srv/SavePose \
   "{save_mode: 0, task_name: 'home_pose', reference_frame: ''}"
 ```
 
@@ -169,7 +169,7 @@ ros2 service call /save_pose ur_msgs/srv/SavePose \
 Saves poses relative to the camera. Perfect for interacting with objects at variable positions in the FOV.
 
 ```bash
-ros2 service call /save_pose ur_msgs/srv/SavePose \
+ros2 service call /save_pose generic_arm_interfaces/srv/SavePose \
   "{save_mode: 1, task_name: 'pre_grasp_from_camera', reference_frame: ''}"
 ```
 
@@ -177,7 +177,7 @@ ros2 service call /save_pose ur_msgs/srv/SavePose \
 Saves poses relative to an ArUco marker. Enables dynamic picking of labeled objects.
 
 ```bash
-ros2 service call /save_pose ur_msgs/srv/SavePose \
+ros2 service call /save_pose generic_arm_interfaces/srv/SavePose \
   "{save_mode: 2, task_name: 'pick_aruco_dynamic', reference_frame: 'aruco_marker_frame'}"
 ```
 
@@ -200,13 +200,13 @@ ros2 service call /clear_saved_poses std_srvs/srv/Trigger "{}"
 #### Close
 
 ```bash
-ros2 service call /gripper_control ur_msgs/srv/GripperCommand "{command: 'close'}"
+ros2 service call /gripper/command generic_arm_interfaces/srv/GripperCommand "{command: 'close'}"
 ```
 
 #### Open
 
 ```bash
-ros2 service call /gripper_control ur_msgs/srv/GripperCommand "{command: 'open'}"
+ros2 service call /gripper/command generic_arm_interfaces/srv/GripperCommand "{command: 'open'}"
 ```
 
 ---
@@ -343,19 +343,19 @@ Position the object with ArUco marker (e.g., ID=0) in the camera's FOV.
 
 **Pre-grasp relative to camera:**
 ```bash
-ros2 service call /save_pose ur_msgs/srv/SavePose \
+ros2 service call /save_pose generic_arm_interfaces/srv/SavePose \
   "{save_mode: 1, task_name: 'pre_grasp', reference_frame: ''}"
 ```
 
 **Grasp relative to ArUco:**
 ```bash
-ros2 service call /save_pose ur_msgs/srv/SavePose \
+ros2 service call /save_pose generic_arm_interfaces/srv/SavePose \
   "{save_mode: 2, task_name: 'grasp', reference_frame: 'aruco_marker_frame'}"
 ```
 
 **Absolute home:**
 ```bash
-ros2 service call /save_pose ur_msgs/srv/SavePose \
+ros2 service call /save_pose generic_arm_interfaces/srv/SavePose \
   "{save_mode: 0, task_name: 'home', reference_frame: ''}"
 ```
 
