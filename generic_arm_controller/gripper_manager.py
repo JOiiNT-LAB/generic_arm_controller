@@ -1,10 +1,14 @@
 #!/usr/bin/env python3
+import time
+
 import rclpy
 from rclpy.node import Node
 from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.action import ActionClient
 
+from std_msgs.msg import Float64MultiArray
+from sensor_msgs.msg import JointState
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 from ur_msgs.srv import GripperCommand as GripperSrv
 from control_msgs.action import GripperCommand as GripperAction
@@ -24,6 +28,16 @@ SOFTHAND_MAX_POS = 3500
 # Kinematic limits Robotiq 2F-85 in Gazebo/ROS 2 Control
 ROBOTIQ_MIN_POS  = 0.0  # Open
 ROBOTIQ_MAX_POS  = 0.8  # Fully Closed
+
+# Il command_interface "position" di ign_ros2_control (Fortress) non applica alcuna
+# coppia per questo giunto: la conversione interna position->velocity risulta un
+# no-op nella fisica, mentre comandare la velocity interface funziona correttamente.
+# Guidiamo quindi il giunto in Gazebo con un ciclo di controllo in velocità.
+ROBOTIQ_JOINT_NAME       = 'robotiq_85_left_knuckle_joint'
+ROBOTIQ_COMMANDS_TOPIC   = '/robotiq_gripper_controller/commands'
+ROBOTIQ_MOVE_VELOCITY    = 0.4   # rad/s (< limite giunto 0.5 rad/s)
+ROBOTIQ_POS_TOLERANCE    = 0.01  # rad
+ROBOTIQ_MOVE_TIMEOUT     = 5.0   # s
 
 # Franka Hand: apertura pinza in metri (a differenza del Robotiq, qui la convenzione
 # non è invertita: 0.0 = chiuso, larghezza massima = aperto)
@@ -49,6 +63,21 @@ class GripperManager(Node):
             JointTrajectory,
             '/finger_width_trajectory_controller/joint_trajectory',
             10,
+        )
+
+        # --- Robotiq velocity command publisher + joint state feedback ---
+        self.robotiq_cmd_pub = self.create_publisher(
+            Float64MultiArray,
+            ROBOTIQ_COMMANDS_TOPIC,
+            10,
+        )
+        self.robotiq_current_pos = 0.0
+        self.create_subscription(
+            JointState,
+            '/joint_states',
+            self._joint_state_callback,
+            10,
+            callback_group=self.cb_group,
         )
 
         # --- SoftHand client (only if package available) ---
@@ -94,35 +123,39 @@ class GripperManager(Node):
         self.get_logger().info('GripperManager READY')
 
     # =========================================================
+    # JOINT STATE FEEDBACK (usato dal controllo in velocità del Robotiq)
+    # =========================================================
+
+    def _joint_state_callback(self, msg):
+        if ROBOTIQ_JOINT_NAME in msg.name:
+            self.robotiq_current_pos = msg.position[msg.name.index(ROBOTIQ_JOINT_NAME)]
+
+    # =========================================================
     # MAIN CALLBACK
     # =========================================================
 
     def gripper_callback(self, request, response):
-        cmd          = request.command.strip().lower()
-        gripper_type = request.gripper_type.strip().lower() \
-                       if request.gripper_type else 'auto'
+        cmd = request.command.strip().lower()
 
-        position = self._resolve_position(cmd, request.position)
+        position = self._resolve_position(cmd)
 
         if position is None:
             response.success = False
             response.message = (
-                f"Invalid command '{cmd}'. "
-                "Use 'open', 'close', or 'move' with position in [0.0, 1.0]."
+                f"Invalid command '{cmd}'. Use 'open' or 'close'."
             )
             self.get_logger().error(response.message)
             return response
 
+        gripper_type = (
+            self.default_gripper_type
+            if self.default_gripper_type != 'auto'
+            else self._auto_select()
+        )
+
         self.get_logger().info(
             f"Gripper → cmd={cmd}, position={position:.3f}, type={gripper_type}"
         )
-
-        if gripper_type == 'auto':
-            gripper_type = (
-                self.default_gripper_type
-                if self.default_gripper_type != 'auto'
-                else self._auto_select()
-            )
 
         if gripper_type == 'rg2':
             return self._handle_rg2(position, response)
@@ -142,13 +175,11 @@ class GripperManager(Node):
     # POSITION RESOLUTION
     # =========================================================
 
-    def _resolve_position(self, cmd: str, raw_position: float):
+    def _resolve_position(self, cmd: str):
         if cmd == 'open':
             return 1.0  # Logic convention: 1.0 = Fully Open
         elif cmd == 'close':
             return 0.0  # Logic convention: 0.0 = Fully Closed
-        elif cmd == 'move':
-            return max(0.0, min(1.0, float(raw_position)))
         return None
 
     # =========================================================
@@ -234,50 +265,31 @@ class GripperManager(Node):
     # =========================================================
 
     def _handle_robotiq(self, position: float, response):
-        if not self.robotiq_client.wait_for_server(timeout_sec=2.0):
-            response.success = False
-            response.message = 'Robotiq action server not available!'
-            self.get_logger().error(response.message)
-            return response
+        target_pos = ROBOTIQ_MAX_POS - position * (ROBOTIQ_MAX_POS - ROBOTIQ_MIN_POS)
 
-        robotiq_pos = ROBOTIQ_MAX_POS - position * (ROBOTIQ_MAX_POS - ROBOTIQ_MIN_POS)
+        self.get_logger().info(f'[Robotiq] Driving to position: {target_pos:.3f}')
 
-        goal_msg = GripperAction.Goal()
-        goal_msg.command.position = robotiq_pos
-        goal_msg.command.max_effort = 100.0  # Grasping force
-
-        self.get_logger().info(f'[Robotiq] Sending goal position: {robotiq_pos:.3f}')
-        
-        send_goal_future = self.robotiq_client.send_goal_async(goal_msg)
-
-        import time
-        timeout = 5.0
         start = time.time()
+        while time.time() - start < ROBOTIQ_MOVE_TIMEOUT:
+            error = target_pos - self.robotiq_current_pos
+            if abs(error) <= ROBOTIQ_POS_TOLERANCE:
+                break
+            vel = ROBOTIQ_MOVE_VELOCITY if error > 0 else -ROBOTIQ_MOVE_VELOCITY
+            self.robotiq_cmd_pub.publish(Float64MultiArray(data=[vel]))
+            time.sleep(0.02)
 
-        while not send_goal_future.done():
-            time.sleep(0.01)
-            if time.time() - start > timeout:
-                response.success = False
-                response.message = 'Robotiq goal acceptance timeout.'
-                return response
+        self.robotiq_cmd_pub.publish(Float64MultiArray(data=[0.0]))
 
-        goal_handle = send_goal_future.result()
-        if not goal_handle.accepted:
-            response.success = False
-            response.message = 'Robotiq goal rejected by action server.'
-            return response
-
-        get_result_future = goal_handle.get_result_async()
-        while not get_result_future.done():
-            time.sleep(0.01)
-            if time.time() - start > timeout:
-                response.success = False
-                response.message = 'Robotiq movement completion timeout.'
-                return response
-
-        self.get_logger().info(f'[Robotiq] Movement completed successfully.')
-        response.success = True
-        response.message = f'Robotiq set to {robotiq_pos:.2f} (Logical input: {position:.2f})'
+        error = target_pos - self.robotiq_current_pos
+        response.success = abs(error) <= ROBOTIQ_POS_TOLERANCE
+        response.message = (
+            f'Robotiq set to {target_pos:.2f} (Logical input: {position:.2f}), '
+            f'reached {self.robotiq_current_pos:.3f}'
+        )
+        if not response.success:
+            self.get_logger().warn(f'[Robotiq] Timeout, {response.message}')
+        else:
+            self.get_logger().info(f'[Robotiq] Movement completed: {response.message}')
         return response
 
     # =========================================================
