@@ -285,7 +285,9 @@ ros2 run llm_app chatlive
 - `"Close gripper"` → Gripper close
 - `"Open gripper"` → Gripper open
 - `"Execute tasks"` → Execute saved sequence
-- `"Go to [x, y, z]"` → Cartesian movement
+- `"Clear poses"` → Clear saved sequence
+
+No "go to [x, y, z]" intent exists in the chat — direct Cartesian moves are done via the `/target_cartesian_pose` topic, not natural language.
 
 ---
 
