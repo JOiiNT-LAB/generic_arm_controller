@@ -371,6 +371,20 @@ The robot will execute: pre-grasp → grasp → home
 
 ---
 
+## 🧪 Automated Validation
+
+Instead of running the workflow above by hand, `validate_pipeline` does move → confirm arrival (via `/fk_pose`) → save → replay → cleanup on its own and prints a PASS/FAIL summary (exit code 1 on failure):
+
+```bash
+ros2 run generic_arm_controller validate_pipeline
+# or, for a robot other than UR10e:
+ros2 run generic_arm_controller validate_pipeline --base-frame fr3_link0 --pose1 0.3,0.0,0.5 --pose2 0.3,0.0,0.3
+```
+
+See the main [README's End-to-End Validation Tutorial](../../../README.md#-end-to-end-validation-tutorial-move--save--execute) for the manual, step-by-step equivalent.
+
+---
+
 ## 🔧 Troubleshooting
 
 | Problem | Solution |
