@@ -467,15 +467,18 @@ class GripperManager(Node):
                 response.message = f'Franka Hand (native) {action_name} completion timeout.'
                 return response
 
+        # Move.Result ha solo success/error (bool/string) - current_width è nel
+        # Feedback, non nel Result (bug precedente: leggerlo da qui dava
+        # AttributeError e faceva morire il nodo senza il try/except sopra).
         result = get_result_future.result().result
         self.get_logger().info(
             f'[FrankaHand/native] {action_name} completed: success={result.success} '
-            f'current_width={result.current_width:.3f} m'
+            f'error="{result.error}"'
         )
-        response.success = True
+        response.success = result.success
         response.message = (
             f'FrankaHand (native {action_name}) width={franka_width:.3f} m '
-            f'(Logical input: {position:.2f}), reached={result.current_width:.3f} m'
+            f'(Logical input: {position:.2f}), success={result.success} error="{result.error}"'
         )
         return response
 
