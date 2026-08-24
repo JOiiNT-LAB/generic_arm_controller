@@ -23,11 +23,11 @@ except ImportError:
 # Protected franka_msgs import: serve solo per il ramo azioni native del
 # Franka Hand reale (franka_hand_native_actions: true nel profilo) - il
 # wrapper control_msgs/GripperCommand del bring-up reale (franka_ros2 v0.1.8)
-# si è rivelato inaffidabile per riaprire dopo una chiusura, mentre le azioni
-# native Move/Grasp funzionano in modo affidabile (verificato via CLI a mano).
+# si è rivelato inaffidabile per riaprire dopo una chiusura, mentre l'azione
+# nativa Move funziona in modo affidabile (verificato via CLI a mano) sia per
+# aprire che per chiudere.
 try:
     from franka_msgs.action import Move as FrankaMove
-    from franka_msgs.action import Grasp as FrankaGrasp
     FRANKA_MSGS_AVAILABLE = True
 except ImportError:
     FRANKA_MSGS_AVAILABLE = False
@@ -56,13 +56,8 @@ ROBOTIQ_MOVE_TIMEOUT     = 5.0   # s
 FRANKA_HAND_MIN_WIDTH = 0.0    # Closed
 FRANKA_HAND_MAX_WIDTH = 0.08   # Open
 
-# Ramo azioni native (Move/Grasp) - stessa forza/velocità già usate col wrapper
-# GripperCommand (max_effort=20N). Epsilon generoso apposta: senza oggetto tra
-# le dita la larghezza finale non sarà mai esattamente 0, e Grasp la segnala
-# come "fallita" se fuori tolleranza - qui vogliamo solo chiudere, non afferrare.
-FRANKA_HAND_SPEED         = 0.05  # m/s
-FRANKA_HAND_GRASP_FORCE   = 20.0  # N
-FRANKA_HAND_GRASP_EPSILON = 0.01  # m
+# Ramo azione nativa Move - stessa velocità già verificata a mano via CLI.
+FRANKA_HAND_SPEED = 0.05  # m/s
 
 
 class GripperManager(Node):
@@ -154,20 +149,15 @@ class GripperManager(Node):
             f'Franka Hand Action Client initialized on {self.franka_hand_gripper_action}.'
         )
 
-        # --- Franka Hand: client azioni native (solo se franka_hand_native_actions: true) ---
+        # --- Franka Hand: client azione nativa Move (solo se franka_hand_native_actions: true) ---
         self.franka_hand_move_client = None
-        self.franka_hand_grasp_client = None
         if self.franka_hand_native:
             self.franka_hand_move_client = ActionClient(
                 self, FrankaMove, f'{self.franka_hand_namespace}/move',
                 callback_group=self.cb_group,
             )
-            self.franka_hand_grasp_client = ActionClient(
-                self, FrankaGrasp, f'{self.franka_hand_namespace}/grasp',
-                callback_group=self.cb_group,
-            )
             self.get_logger().info(
-                f'Franka Hand native action clients initialized on {self.franka_hand_namespace}.'
+                f'Franka Hand native Move action client initialized on {self.franka_hand_namespace}.'
             )
 
         # --- ROS Service ---
@@ -421,27 +411,22 @@ class GripperManager(Node):
         franka_width = FRANKA_HAND_MIN_WIDTH + position * (
             FRANKA_HAND_MAX_WIDTH - FRANKA_HAND_MIN_WIDTH
         )
-        opening = position >= 0.5
 
-        client = self.franka_hand_move_client if opening else self.franka_hand_grasp_client
+        # Solo Move, sia per apertura che chiusura: Grasp (pensata per afferrare
+        # oggetti, con rilevamento di contatto) sul bring-up reale fa morire il
+        # processo in modo silenzioso - senza traceback - quando non c'è nulla
+        # tra le dita (verificato: Move invece funziona in modo affidabile per
+        # entrambe le direzioni). L'interfaccia open/close binaria attuale non
+        # ha bisogno della semantica forza/contatto di Grasp comunque.
+        client = self.franka_hand_move_client
         if not client.wait_for_server(timeout_sec=2.0):
             response.success = False
             response.message = 'Franka Hand (native) action server not available!'
             self.get_logger().error(response.message)
             return response
 
-        if opening:
-            goal_msg = FrankaMove.Goal(width=franka_width, speed=FRANKA_HAND_SPEED)
-        else:
-            goal_msg = FrankaGrasp.Goal(
-                width=franka_width,
-                speed=FRANKA_HAND_SPEED,
-                force=FRANKA_HAND_GRASP_FORCE,
-            )
-            goal_msg.epsilon.inner = FRANKA_HAND_GRASP_EPSILON
-            goal_msg.epsilon.outer = FRANKA_HAND_GRASP_EPSILON
-
-        action_name = 'Move' if opening else 'Grasp'
+        goal_msg = FrankaMove.Goal(width=franka_width, speed=FRANKA_HAND_SPEED)
+        action_name = 'Move'
         self.get_logger().info(f'[FrankaHand/native] {action_name} → width={franka_width:.3f} m')
 
         send_goal_future = client.send_goal_async(goal_msg)
