@@ -1,0 +1,48 @@
+# Profilo robot: Franka Research 3 REALE (bring-up franka_ros2 v0.1.8 su PC
+# real-time separato, non Gazebo — vedi fr3.yaml per la variante sim).
+# Naming panda_* (non fr3_*): il firmware del Control Box del robot fisico
+# è compatibile solo con franka_ros2 <= v0.1.8, che non ha ancora il naming
+# fr3_*. Vedi ros2_ws/src/robots/franka/franka_description_panda_legacy/README.md
+# per il motivo per cui questo profilo usa un pacchetto URDF diverso da fr3.yaml.
+/**:
+  ros__parameters:
+
+    # ----- Descrizione / xacro -----
+    urdf_package: "franka_description_panda_legacy"
+    xacro_relative_path: "robots/panda_kinematic.urdf.xacro"
+    xacro_args:
+      - "arm_id:=panda"
+      - "hand:=true"
+
+    # ----- Cinematica -----
+    end_effector_frame: "panda_hand_tcp"   # con Franka Hand (hand:=true). Senza gripper: "panda_link8"
+    base_frame: "panda_link0"
+    joint_names:
+      - "panda_joint1"
+      - "panda_joint2"
+      - "panda_joint3"
+      - "panda_joint4"
+      - "panda_joint5"
+      - "panda_joint6"
+      - "panda_joint7"
+
+    # ----- Action server / topic -----
+    # joint_trajectory_controller è avviato dal bring-up sul PC real-time
+    # (franka_ros2 v0.1.8, run_real.sh) - qui ci si limita a collegarsi.
+    action_server_name: "/joint_trajectory_controller/follow_joint_trajectory"
+    pose_topic:         "/target_cartesian_pose"
+    joint_states_topic: "/joint_states"
+    ik_result_topic:    "/ik_action_result"
+    fk_pose_topic:      "/fk_pose"
+
+    # ----- IK solver -----
+    ik_tolerance:  0.001
+    ik_max_iter:   4000
+    ik_dt:         0.1
+    ik_damping:    0.05
+
+    # ----- Traiettoria -----
+    trajectory_duration: 3.0
+
+    # ----- Gripper -----
+    default_gripper_type: "franka_hand"
