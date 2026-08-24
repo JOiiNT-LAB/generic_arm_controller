@@ -185,12 +185,18 @@ class GripperManager(Node):
     def gripper_callback(self, request, response):
         cmd = request.command.strip().lower()
 
-        position = self._resolve_position(cmd)
+        # "move" con position esplicita (range [0.0, 1.0]) è documentato nel .srv
+        # ma non era mai stato implementato qui - solo open/close venivano accettati,
+        # quindi ogni task salvato con command="move" (aperture parziali) falliva sempre.
+        if cmd == 'move':
+            position = max(0.0, min(1.0, float(request.position)))
+        else:
+            position = self._resolve_position(cmd)
 
         if position is None:
             response.success = False
             response.message = (
-                f"Invalid command '{cmd}'. Use 'open' or 'close'."
+                f"Invalid command '{cmd}'. Use 'open', 'close' or 'move' (with position)."
             )
             self.get_logger().error(response.message)
             return response
