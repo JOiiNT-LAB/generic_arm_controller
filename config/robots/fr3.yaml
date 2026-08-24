@@ -45,3 +45,4 @@
 
     # ----- Gripper -----
     default_gripper_type: "franka_hand"
+    franka_hand_gripper_action: "/franka_gripper/gripper_action"

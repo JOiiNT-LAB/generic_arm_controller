@@ -20,6 +20,18 @@ try:
 except ImportError:
     QB_AVAILABLE = False
 
+# Protected franka_msgs import: serve solo per il ramo azioni native del
+# Franka Hand reale (franka_hand_native_actions: true nel profilo) - il
+# wrapper control_msgs/GripperCommand del bring-up reale (franka_ros2 v0.1.8)
+# si è rivelato inaffidabile per riaprire dopo una chiusura, mentre le azioni
+# native Move/Grasp funzionano in modo affidabile (verificato via CLI a mano).
+try:
+    from franka_msgs.action import Move as FrankaMove
+    from franka_msgs.action import Grasp as FrankaGrasp
+    FRANKA_MSGS_AVAILABLE = True
+except ImportError:
+    FRANKA_MSGS_AVAILABLE = False
+
 
 RG2_MAX_WIDTH_M  = 0.085
 SOFTHAND_MIN_POS = 0
@@ -44,6 +56,14 @@ ROBOTIQ_MOVE_TIMEOUT     = 5.0   # s
 FRANKA_HAND_MIN_WIDTH = 0.0    # Closed
 FRANKA_HAND_MAX_WIDTH = 0.08   # Open
 
+# Ramo azioni native (Move/Grasp) - stessa forza/velocità già usate col wrapper
+# GripperCommand (max_effort=20N). Epsilon generoso apposta: senza oggetto tra
+# le dita la larghezza finale non sarà mai esattamente 0, e Grasp la segnala
+# come "fallita" se fuori tolleranza - qui vogliamo solo chiudere, non afferrare.
+FRANKA_HAND_SPEED         = 0.05  # m/s
+FRANKA_HAND_GRASP_FORCE   = 20.0  # N
+FRANKA_HAND_GRASP_EPSILON = 0.01  # m
+
 
 class GripperManager(Node):
 
@@ -54,6 +74,26 @@ class GripperManager(Node):
         # richiesta di servizio non specifica gripper_type (o lo lascia 'auto').
         self.declare_parameter('default_gripper_type', 'auto')
         self.default_gripper_type = self.get_parameter('default_gripper_type').value
+
+        # Namespace dell'azione GripperCommand del Franka Hand: diverso tra bring-up
+        # (Gazebo/franka_ros2 v2.5.1 usa /franka_gripper, il bring-up reale v0.1.8 usa
+        # /panda_gripper - solo una scelta di namespace nel loro launch, non un vincolo
+        # di firmware) - configurabile per profilo, default invariato per la sim.
+        self.declare_parameter('franka_hand_gripper_action', '/franka_gripper/gripper_action')
+        self.franka_hand_gripper_action = self.get_parameter('franka_hand_gripper_action').value
+
+        # Vedi commento sopra FRANKA_MSGS_AVAILABLE: solo il bring-up reale lo attiva
+        # (fr3_real.yaml), il profilo Gazebo (fr3.yaml) resta sul wrapper GripperCommand.
+        self.declare_parameter('franka_hand_native_actions', False)
+        self.declare_parameter('franka_hand_namespace', '/panda_gripper')
+        self.franka_hand_native = bool(self.get_parameter('franka_hand_native_actions').value)
+        self.franka_hand_namespace = self.get_parameter('franka_hand_namespace').value
+        if self.franka_hand_native and not FRANKA_MSGS_AVAILABLE:
+            self.get_logger().warn(
+                'franka_hand_native_actions=true ma franka_msgs non è installato: '
+                'ricado sul wrapper GripperCommand.'
+            )
+            self.franka_hand_native = False
 
         # FIX DEADLOCK: ReentrantCallbackGroup + MultiThreadedExecutor
         self.cb_group = ReentrantCallbackGroup()
@@ -107,10 +147,28 @@ class GripperManager(Node):
         self.franka_hand_client = ActionClient(
             self,
             GripperAction,
-            '/franka_gripper/gripper_action',
+            self.franka_hand_gripper_action,
             callback_group=self.cb_group
         )
-        self.get_logger().info('Franka Hand Action Client initialized.')
+        self.get_logger().info(
+            f'Franka Hand Action Client initialized on {self.franka_hand_gripper_action}.'
+        )
+
+        # --- Franka Hand: client azioni native (solo se franka_hand_native_actions: true) ---
+        self.franka_hand_move_client = None
+        self.franka_hand_grasp_client = None
+        if self.franka_hand_native:
+            self.franka_hand_move_client = ActionClient(
+                self, FrankaMove, f'{self.franka_hand_namespace}/move',
+                callback_group=self.cb_group,
+            )
+            self.franka_hand_grasp_client = ActionClient(
+                self, FrankaGrasp, f'{self.franka_hand_namespace}/grasp',
+                callback_group=self.cb_group,
+            )
+            self.get_logger().info(
+                f'Franka Hand native action clients initialized on {self.franka_hand_namespace}.'
+            )
 
         # --- ROS Service ---
         self.service = self.create_service(
@@ -297,6 +355,9 @@ class GripperManager(Node):
     # =========================================================
 
     def _handle_franka_hand(self, position: float, response):
+        if self.franka_hand_native:
+            return self._handle_franka_hand_native(position, response)
+
         if not self.franka_hand_client.wait_for_server(timeout_sec=2.0):
             response.success = False
             response.message = 'Franka Hand action server not available!'
@@ -343,6 +404,83 @@ class GripperManager(Node):
         self.get_logger().info('[FrankaHand] Movement completed successfully.')
         response.success = True
         response.message = f'FrankaHand set to {franka_width:.3f} m (Logical input: {position:.2f})'
+        return response
+
+    # =========================================================
+    # FRANKA HAND - azioni native (Move/Grasp)
+    #
+    # Il wrapper control_msgs/GripperCommand del bring-up reale (franka_ros2
+    # v0.1.8, namespace /panda_gripper) si è rivelato inaffidabile: dopo una
+    # chiusura, i comandi di apertura successivi restano bloccati/senza
+    # risultato. Le azioni native Move/Grasp dello stesso bring-up invece
+    # funzionano in modo affidabile (verificato via `ros2 action send_goal`),
+    # quindi qui bypassiamo del tutto quel wrapper per il profilo reale.
+    # =========================================================
+
+    def _handle_franka_hand_native(self, position: float, response):
+        franka_width = FRANKA_HAND_MIN_WIDTH + position * (
+            FRANKA_HAND_MAX_WIDTH - FRANKA_HAND_MIN_WIDTH
+        )
+        opening = position >= 0.5
+
+        client = self.franka_hand_move_client if opening else self.franka_hand_grasp_client
+        if not client.wait_for_server(timeout_sec=2.0):
+            response.success = False
+            response.message = 'Franka Hand (native) action server not available!'
+            self.get_logger().error(response.message)
+            return response
+
+        if opening:
+            goal_msg = FrankaMove.Goal(width=franka_width, speed=FRANKA_HAND_SPEED)
+        else:
+            goal_msg = FrankaGrasp.Goal(
+                width=franka_width,
+                speed=FRANKA_HAND_SPEED,
+                force=FRANKA_HAND_GRASP_FORCE,
+            )
+            goal_msg.epsilon.inner = FRANKA_HAND_GRASP_EPSILON
+            goal_msg.epsilon.outer = FRANKA_HAND_GRASP_EPSILON
+
+        action_name = 'Move' if opening else 'Grasp'
+        self.get_logger().info(f'[FrankaHand/native] {action_name} → width={franka_width:.3f} m')
+
+        send_goal_future = client.send_goal_async(goal_msg)
+
+        timeout = 5.0
+        start = time.time()
+        while not send_goal_future.done():
+            time.sleep(0.01)
+            if time.time() - start > timeout:
+                response.success = False
+                response.message = f'Franka Hand (native) {action_name} acceptance timeout.'
+                return response
+
+        goal_handle = send_goal_future.result()
+        if not goal_handle.accepted:
+            response.success = False
+            response.message = f'Franka Hand (native) {action_name} rejected by action server.'
+            return response
+
+        get_result_future = goal_handle.get_result_async()
+        while not get_result_future.done():
+            time.sleep(0.01)
+            if time.time() - start > timeout:
+                response.success = False
+                response.message = f'Franka Hand (native) {action_name} completion timeout.'
+                return response
+
+        result = get_result_future.result().result
+        self.get_logger().info(
+            f'[FrankaHand/native] {action_name} completed: success={result.success} '
+            f'current_width={result.current_width:.3f} m'
+        )
+        # Grasp segnala success=False se non ha "afferrato" nulla (nessun oggetto tra
+        # le dita) - qui va bene comunque: l'obiettivo era solo chiudere, non afferrare.
+        response.success = True
+        response.message = (
+            f'FrankaHand (native {action_name}) width={franka_width:.3f} m '
+            f'(Logical input: {position:.2f}), reached={result.current_width:.3f} m'
+        )
         return response
 
     # =========================================================

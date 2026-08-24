@@ -46,3 +46,11 @@
 
     # ----- Gripper -----
     default_gripper_type: "franka_hand"
+    # Il wrapper control_msgs/GripperCommand (/panda_gripper/gripper_action) sul
+    # bring-up reale si è rivelato inaffidabile (non riapre dopo una chiusura) -
+    # usiamo le azioni native Move/Grasp dello stesso bring-up, verificate
+    # affidabili a mano via `ros2 action send_goal`. Richiede una Homing
+    # (ros2 action send_goal /panda_gripper/homing franka_msgs/action/Homing "{}")
+    # una volta dopo l'avvio del bring-up, altrimenti i comandi falliscono "out of range".
+    franka_hand_native_actions: true
+    franka_hand_namespace: "/panda_gripper"
