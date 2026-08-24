@@ -6,6 +6,7 @@ from std_srvs.srv._trigger import Trigger_Response
 
 import json
 import os
+import threading
 import time
 from std_msgs.msg import Bool
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy, DurabilityPolicy
@@ -33,6 +34,14 @@ class TaskExecutorNode(Node):
         self.target_frame_for_ik = self.get_parameter('base_frame').value
 
         self.reentrant_callback_group = ReentrantCallbackGroup()
+
+        # execute_saved_tasks_callback gira su ReentrantCallbackGroup (necessario per gli
+        # altri servizi di questo nodo), ma una sequenza che pilota il robot fisico NON va
+        # mai eseguita due volte in parallelo (es. utente che ripete "execute tasks" in chat
+        # prima che la sequenza precedente finisca) - i comandi si sovrapporrebbero sullo
+        # stesso robot. Lock non bloccante: una seconda richiesta concorrente viene
+        # rifiutata subito invece di partire in parallelo.
+        self._exec_lock = threading.Lock()
 
         # TF2
         self.tf_buffer = Buffer()
@@ -255,6 +264,17 @@ class TaskExecutorNode(Node):
     def execute_saved_tasks_callback(
         self, request: Trigger.Request, response: Trigger_Response
     ):
+        if not self._exec_lock.acquire(blocking=False):
+            response.success = False
+            response.message = "Una sequenza è già in esecuzione - attendi che finisca."
+            self.get_logger().warn(response.message)
+            return response
+        try:
+            return self._execute_saved_tasks(response)
+        finally:
+            self._exec_lock.release()
+
+    def _execute_saved_tasks(self, response: Trigger_Response):
         self.get_logger().info("Avvio sequenza task.")
 
         if not self.load_poses_from_file():
