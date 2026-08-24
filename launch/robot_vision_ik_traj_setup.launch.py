@@ -161,6 +161,7 @@ def generate_launch_description():
         name='task_saving_node_complete',
         output='screen',
         respawn=False,
+        parameters=[robot_profile],
     )
 
     # -----------------------------------------------------------------------
