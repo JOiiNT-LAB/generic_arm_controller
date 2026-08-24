@@ -408,6 +408,19 @@ class GripperManager(Node):
     # =========================================================
 
     def _handle_franka_hand_native(self, position: float, response):
+        # Rete verso il PC real-time già vista instabile in questa sessione (il bring-up
+        # reale è andato giù/su più volte) - un'eccezione qui non deve far morire tutto
+        # gripper_node (fk_node/ik_trajectory_node resterebbero comunque vivi, ma il
+        # servizio gripper andrebbe riavviato manualmente ogni volta).
+        try:
+            return self._handle_franka_hand_native_impl(position, response)
+        except Exception as exc:
+            self.get_logger().error(f'[FrankaHand/native] Unhandled exception: {exc!r}')
+            response.success = False
+            response.message = f'Franka Hand (native) internal error: {exc}'
+            return response
+
+    def _handle_franka_hand_native_impl(self, position: float, response):
         franka_width = FRANKA_HAND_MIN_WIDTH + position * (
             FRANKA_HAND_MAX_WIDTH - FRANKA_HAND_MIN_WIDTH
         )
@@ -459,8 +472,6 @@ class GripperManager(Node):
             f'[FrankaHand/native] {action_name} completed: success={result.success} '
             f'current_width={result.current_width:.3f} m'
         )
-        # Grasp segnala success=False se non ha "afferrato" nulla (nessun oggetto tra
-        # le dita) - qui va bene comunque: l'obiettivo era solo chiudere, non afferrare.
         response.success = True
         response.message = (
             f'FrankaHand (native {action_name}) width={franka_width:.3f} m '
