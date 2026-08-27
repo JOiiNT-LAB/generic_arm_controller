@@ -15,7 +15,24 @@
       - "hand:=true"
 
     # ----- Cinematica -----
-    end_effector_frame: "panda_hand_tcp"   # con Franka Hand (hand:=true). Senza gripper: "panda_link8"
+    # end_effector_frame = panda_link8 (flangia), NON panda_hand_tcp: il
+    # robot_state_publisher reale sul PC real-time pubblica un URDF senza
+    # mano, fermo a panda_link8 - panda_hand_tcp non è quindi MAI raggiungibile
+    # come TF live (nessun nodo lo pubblica: non fk_node, che scrive solo un
+    # numero su /fk_pose, non il bring-up reale, non il bridge di rviz_bridge.
+    # launch.py, disconnesso apposta da /joint_states). Con panda_hand_tcp
+    # configurato qui, ogni lookup_transform su quel frame (es. task_saving_
+    # node/save_pose) falliva, e le voci "riuscite" viste in passato in
+    # robot_poses_ws.json risalgono a test precedenti (probabilmente in
+    # simulazione, dove l'URDF con mano è realmente pubblicato in TF) - non
+    # sono replicabili sul robot reale con questo bring-up. panda_link8 è
+    # anche il frame usato dalla calibrazione hand-eye camera (vedi
+    # calibration_results/hand_eye_transform_fr3_real.yaml), quindi tutta la
+    # pipeline (calibrazione, pose salvate, target IK) resta coerente nello
+    # stesso riferimento realmente esistente nell'albero TF. Le pose/target
+    # sono quindi relative alla flangia, non alla punta della Franka Hand
+    # (differenza pari alla lunghezza della mano, ~10cm).
+    end_effector_frame: "panda_link8"
     base_frame: "panda_link0"
     joint_names:
       - "panda_joint1"

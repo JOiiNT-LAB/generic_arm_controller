@@ -301,7 +301,14 @@ class TaskExecutorNode(Node):
                 default_sleep = 1.5 
             elif task_type == 'move':
                 ok = self._execute_move_task(task_data)
-                default_sleep = 0.0
+                # L'action FollowJointTrajectory riporta "succeeded" alla fine
+                # del tempo di traiettoria pianificato (trajectory_duration),
+                # non quando il braccio reale si è davvero fermato: appena
+                # finita l'inerzia residua/oscillazione può ancora essere in
+                # movimento. Una piccola pausa qui evita di lanciare il target
+                # successivo mentre il braccio non si è ancora stabilizzato.
+                # Override per singolo waypoint con "sleep_time" nel json.
+                default_sleep = 0.4
             else:
                 self.get_logger().warn(
                     f"task_type '{task_type}' non riconosciuto. Salto."

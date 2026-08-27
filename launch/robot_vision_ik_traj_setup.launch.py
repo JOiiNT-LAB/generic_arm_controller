@@ -17,10 +17,11 @@ import yaml
 # Helper: legge la calibrazione mano-occhio e crea il static_transform_publisher
 # ---------------------------------------------------------------------------
 def load_calibration_from_yaml(context):
+    robot = LaunchConfiguration('robot').perform(context)
     calibration_file_path = PathJoinSubstitution([
         FindPackageShare('generic_arm_controller'),
         'calibration_results',
-        'hand_eye_transform.yaml'
+        f'hand_eye_transform_{robot}.yaml'
     ]).perform(context)
 
     if not os.path.exists(calibration_file_path):
@@ -85,6 +86,26 @@ def generate_launch_description():
             'Profilo robot da usare (config/robots/<robot>.yaml) - deve esistere '
             'il file corrispondente, es. ur10e, fr3.'
         )
+    )
+    # Default = marker/telecamera reali (verificati con realsense2_camera +
+    # aruco_ros single.launch.py). Per Gazebo passa gli argomenti corrispondenti
+    # ai topic/marker del tuo SDF, es. marker_id:=0 marker_size:=0.1778
+    # aruco_image_topic:=/camera_sensor/realsense_camera/image_raw.
+    marker_id_arg = DeclareLaunchArgument(
+        'marker_id', default_value='26',
+        description='ID del marker ArUco da rilevare.'
+    )
+    marker_size_arg = DeclareLaunchArgument(
+        'marker_size', default_value='0.15',
+        description='Lato del marker ArUco in metri.'
+    )
+    aruco_image_topic_arg = DeclareLaunchArgument(
+        'aruco_image_topic', default_value='/camera/camera/color/image_raw',
+        description='Topic immagine per aruco_ros.'
+    )
+    aruco_camera_info_topic_arg = DeclareLaunchArgument(
+        'aruco_camera_info_topic', default_value='/camera/camera/color/camera_info',
+        description='Topic camera_info per aruco_ros.'
     )
 
     # Un solo file di parametri per robot, condiviso da fk_node/ik_trajectory_node/
@@ -199,16 +220,15 @@ def generate_launch_description():
         name='aruco_single',
         output='screen',
         parameters=[{
-            'marker_size': 0.1778,                      # <-- CORRETTO: tieni il valore originale del tuo SDF
-            'marker_id': 0,                             # <-- CORRETTO: l'ID del tuo marker è 0
-            'camera_frame': 'camera_color_optical_frame', # <-- FONDAMENTALE: indica il frame ottico della telecamera
+            'marker_size': LaunchConfiguration('marker_size'),
+            'marker_id': LaunchConfiguration('marker_id'),
+            'camera_frame': 'camera_color_optical_frame', # frame ottico della telecamera
             'marker_frame': 'aruco_marker',
-            'reference_frame': 'camera_color_optical_frame', # <-- FONDAMENTALE: allinea il riferimento al frame ottico
-            'dictionary': 10,                           # DICT_ARUCO_ORIGINAL (corretto per i marker standard di Gazebo)
+            'reference_frame': 'camera_color_optical_frame', # allinea il riferimento al frame ottico
         }],
         remappings=[
-            ('/image', '/camera_sensor/realsense_camera/image_raw'),
-            ('/camera_info', '/camera_sensor/realsense_camera/camera_info')
+            ('/image', LaunchConfiguration('aruco_image_topic')),
+            ('/camera_info', LaunchConfiguration('aruco_camera_info_topic'))
         ]
     )
     # -----------------------------------------------------------------------
@@ -246,6 +266,10 @@ def generate_launch_description():
         enable_qb_arg,
         enable_llm_arg,
         robot_arg,
+        marker_id_arg,
+        marker_size_arg,
+        aruco_image_topic_arg,
+        aruco_camera_info_topic_arg,
         # 1. TF statica calibrazione (non ha dipendenze)
         static_tf_node,
 
