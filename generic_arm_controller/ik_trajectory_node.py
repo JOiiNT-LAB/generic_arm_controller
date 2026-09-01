@@ -8,7 +8,7 @@ from rclpy.action import ActionClient
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import JointState
-from std_msgs.msg import Bool
+from std_msgs.msg import Bool, String
 from trajectory_msgs.msg import JointTrajectoryPoint
 
 import pinocchio as pin
@@ -70,6 +70,7 @@ class IKTrajectoryNode(Node):
         self.declare_parameter('pose_topic',          '/target_cartesian_pose')
         self.declare_parameter('joint_states_topic',  '/joint_states')
         self.declare_parameter('ik_result_topic',     '/ik_action_result')
+        self.declare_parameter('ik_result_reason_topic', '/ik_action_result_reason')
         self.declare_parameter('ik_tolerance',        0.001)
         self.declare_parameter('ik_max_iter',         4000)
         self.declare_parameter('ik_dt',               0.1)
@@ -89,6 +90,7 @@ class IKTrajectoryNode(Node):
         pose_topic         = self.get_parameter('pose_topic').value
         joint_states_topic = self.get_parameter('joint_states_topic').value
         ik_result_topic    = self.get_parameter('ik_result_topic').value
+        ik_result_reason_topic = self.get_parameter('ik_result_reason_topic').value
 
         self.tolerance           = self.get_parameter('ik_tolerance').value
         self.max_iter            = self.get_parameter('ik_max_iter').value
@@ -156,6 +158,7 @@ class IKTrajectoryNode(Node):
             durability=DurabilityPolicy.VOLATILE,
         )
         self.ik_result_publisher = self.create_publisher(Bool, ik_result_topic, qos)
+        self.ik_reason_publisher = self.create_publisher(String, ik_result_reason_topic, qos)
         self.get_logger().info(f'Publishing IK results on: {ik_result_topic}')
 
     # ---------------------------------------------------------------------- #
@@ -208,9 +211,21 @@ class IKTrajectoryNode(Node):
 
         self.current_q = updated_q
 
+    def _publish_failure(self, reason: str):
+        self.get_logger().error(reason)
+        # Reason published BEFORE the Bool: task_executor_node_complete reads
+        # ik_action_reason at the exact moment it exits the wait-loop on
+        # ik_action_result, so it must have already arrived.
+        reason_msg      = String()
+        reason_msg.data = reason
+        self.ik_reason_publisher.publish(reason_msg)
+        out      = Bool()
+        out.data = False
+        self.ik_result_publisher.publish(out)
+
     def pose_callback(self, msg: PoseStamped):
         if not self.initial_q_received:
-            self.get_logger().warn('Waiting for initial joint states.')
+            self._publish_failure('Waiting for initial joint states — pose dropped.')
             return
 
         p = msg.pose
@@ -223,7 +238,7 @@ class IKTrajectoryNode(Node):
             p.orientation.y ** 2 + p.orientation.z ** 2
         )
         if q_norm == 0:
-            self.get_logger().error('Zero-norm quaternion — ignoring pose.')
+            self._publish_failure('Zero-norm quaternion — ignoring pose.')
             return
 
         rotation   = pin.Quaternion(
@@ -271,12 +286,9 @@ class IKTrajectoryNode(Node):
         if found:
             self._send_trajectory(q_guess)
         else:
-            self.get_logger().warn(
+            self._publish_failure(
                 f'IK failed after {self.max_iter} iterations, error={error_norm:.4f}'
             )
-            out      = Bool()
-            out.data = False
-            self.ik_result_publisher.publish(out)
 
     # ---------------------------------------------------------------------- #
     # Trajectory
@@ -286,6 +298,7 @@ class IKTrajectoryNode(Node):
         current_pos  = self._get_joint_positions(self.current_q)
         solution_pos = self._get_joint_positions(q_solution)
         if current_pos is None or solution_pos is None:
+            self._publish_failure('Could not resolve joint positions — trajectory not sent.')
             return
 
         goal                        = FollowJointTrajectory.Goal()
@@ -317,7 +330,7 @@ class IKTrajectoryNode(Node):
     def _goal_response_callback(self, future):
         handle = future.result()
         if not handle.accepted:
-            self.get_logger().error('Goal rejected by action server.')
+            self._publish_failure('Goal rejected by action server.')
             return
         self.get_logger().info('Goal accepted.')
         self._get_result_future = handle.get_result_async()
@@ -331,12 +344,15 @@ class IKTrajectoryNode(Node):
         if status == rclpy.action.client.GoalStatus.STATUS_SUCCEEDED:
             self.get_logger().info('Trajectory succeeded.')
             msg.data = True
+            reason   = ""
         else:
-            self.get_logger().warn(
-                f'Trajectory failed — status={status}, error_code={result.error_code}'
-            )
+            reason = f'Trajectory failed — status={status}, error_code={result.error_code}'
+            self.get_logger().warn(reason)
             msg.data = False
 
+        reason_msg      = String()
+        reason_msg.data = reason
+        self.ik_reason_publisher.publish(reason_msg)
         self.ik_result_publisher.publish(msg)
 
     def _feedback_callback(self, feedback_msg):

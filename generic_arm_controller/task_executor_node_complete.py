@@ -8,7 +8,7 @@ import json
 import os
 import threading
 import time
-from std_msgs.msg import Bool
+from std_msgs.msg import Bool, String
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy, DurabilityPolicy
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.callback_groups import ReentrantCallbackGroup
@@ -122,6 +122,13 @@ class TaskExecutorNode(Node):
             self.qos_profile_ik_feedback,
             callback_group=self.reentrant_callback_group
         )
+        self.ik_reason_subscription = self.create_subscription(
+            String,
+            '/ik_action_result_reason',
+            self.ik_reason_callback,
+            self.qos_profile_ik_feedback,
+            callback_group=self.reentrant_callback_group
+        )
 
         # Client GripperManager
         self.gripper_client = self.create_client(
@@ -133,6 +140,8 @@ class TaskExecutorNode(Node):
         # Stato interno
         self.ik_action_result_received = False
         self.ik_action_success         = False
+        self.ik_action_reason          = ""
+        self._last_task_failure_reason = ""
         self.saved_poses               = []
         self.ik_completion_timeout     = 20.0
         self.gripper_timeout           = 10.0
@@ -168,13 +177,16 @@ class TaskExecutorNode(Node):
     # Feedback IK
     # ------------------------------------------------------------------
 
+    def ik_reason_callback(self, msg: String):
+        self.ik_action_reason = msg.data
+
     def ik_result_callback(self, msg: Bool):
         self.ik_action_result_received = True
         self.ik_action_success         = msg.data
         if self.ik_action_success:
             self.get_logger().info("IK completed successfully.")
         else:
-            self.get_logger().warn("IK failed.")
+            self.get_logger().warn(f"IK failed: {self.ik_action_reason or 'unknown reason'}.")
 
     # ------------------------------------------------------------------
     # Caricamento JSON
@@ -208,10 +220,12 @@ class TaskExecutorNode(Node):
         command      = task_data.get('command', '')
         position     = float(task_data.get('position', 0.0))
         gripper_type = task_data.get('gripper_type', 'auto')
+        self._last_task_failure_reason = ""
 
         if not self.gripper_client.service_is_ready():
             self.get_logger().warn("GripperManager non pronto, attendo 5 s...")
             if not self.gripper_client.wait_for_service(timeout_sec=5.0):
+                self._last_task_failure_reason = "GripperManager unreachable"
                 self.get_logger().error("GripperManager non raggiungibile. Salto.")
                 return False
 
@@ -233,6 +247,7 @@ class TaskExecutorNode(Node):
         while not future.done():
             time.sleep(0.01)
             if time.time() - start > self.gripper_timeout:
+                self._last_task_failure_reason = f"Gripper timeout ({self.gripper_timeout:.1f}s)"
                 self.get_logger().warn(
                     f"Timeout gripper ({self.gripper_timeout:.1f} s)."
                 )
@@ -240,12 +255,14 @@ class TaskExecutorNode(Node):
 
         result = future.result()
         if result is None:
+            self._last_task_failure_reason = "Empty gripper response"
             self.get_logger().error("Risposta gripper nulla.")
             return False
 
         if result.success:
             self.get_logger().info(f"Gripper OK: {result.message}")
         else:
+            self._last_task_failure_reason = result.message or "Gripper failed (unknown reason)"
             self.get_logger().warn(f"Gripper FAIL: {result.message}")
         return result.success
 
@@ -342,6 +359,7 @@ class TaskExecutorNode(Node):
     def _execute_move_task(self, task_data: dict) -> bool:
         target_frame_for_ik = self.target_frame_for_ik
         task_name = task_data.get('task_name', 'Unnamed')
+        self._last_task_failure_reason = ""
 
         pose = PoseStamped()
         pose.header.stamp = rclpy.time.Time().to_msg()
@@ -350,6 +368,7 @@ class TaskExecutorNode(Node):
             source_frame = task_data['source_frame']
             pose.header.frame_id = source_frame
         except KeyError:
+            self._last_task_failure_reason = "Missing source_frame"
             self.get_logger().error(f"Manca source_frame per '{task_name}'. Salto.")
             return False
 
@@ -364,6 +383,7 @@ class TaskExecutorNode(Node):
             pose.pose.orientation.z = rot['z']
             pose.pose.orientation.w = rot['w']
         except KeyError as e:
+            self._last_task_failure_reason = f"Incomplete transform: missing {e}"
             self.get_logger().error(
                 f"Transform incompleto per '{task_name}': manca {e}. Salto."
             )
@@ -385,6 +405,7 @@ class TaskExecutorNode(Node):
                         timeout=rclpy.duration.Duration(seconds=1.0)
                     )
                 except TransformException as ex:
+                    self._last_task_failure_reason = f"TF error: {ex}"
                     self.get_logger().error(
                         f"TF error ({source_frame}->{target_frame_for_ik}) per "
                         f"'{task_name}': {ex}. Salto."
@@ -392,12 +413,17 @@ class TaskExecutorNode(Node):
                     return False
 
             if transform is None:
+                self._last_task_failure_reason = (
+                    f"Could not resolve reference '{source_frame}' "
+                    f"(marker not locked or TF unavailable)"
+                )
                 return False
             pose = do_transform_pose_stamped(pose, transform)
 
         # Publish + attesa feedback
         self.ik_action_result_received = False
         self.ik_action_success         = False
+        self.ik_action_reason          = ""
         self.target_pose_publisher.publish(pose)
         self.get_logger().info(
             f"Pose '{task_name}' pubblicata. Attendo IK..."
@@ -408,13 +434,18 @@ class TaskExecutorNode(Node):
             time.sleep(0.01)
             elapsed = (self.get_clock().now() - start).nanoseconds / 1e9
             if elapsed > self.ik_completion_timeout:
+                self._last_task_failure_reason = (
+                    f"IK timeout ({self.ik_completion_timeout:.1f}s) - "
+                    f"ik_trajectory_node did not respond"
+                )
                 self.get_logger().warn(
                     f"Timeout IK ({self.ik_completion_timeout:.1f} s) per '{task_name}'."
                 )
                 return False
 
         if not self.ik_action_success:
-            self.get_logger().warn(f"IK fallito per '{task_name}'.")
+            self._last_task_failure_reason = self.ik_action_reason or "IK failed (unknown reason)"
+            self.get_logger().warn(f"IK fallito per '{task_name}': {self._last_task_failure_reason}")
             return False
 
         self.get_logger().info(f"IK OK per '{task_name}'.")
@@ -453,6 +484,7 @@ class TaskExecutorNode(Node):
 
         success_count = 0
         fail_count    = 0
+        failures      = []  # [(label, reason), ...] - for the response message
 
         for i, task_data in enumerate(self.saved_poses):
             task_type = task_data.get('task_type', 'move')
@@ -465,9 +497,10 @@ class TaskExecutorNode(Node):
                 f"type={task_type}  label={label} ---"
             )
 
+            self._last_task_failure_reason = ""
             if task_type == 'gripper':
                 ok = self._execute_gripper_task(task_data)
-                default_sleep = 1.5 
+                default_sleep = 1.5
             elif task_type == 'move':
                 ok = self._execute_move_task(task_data)
                 # L'action FollowJointTrajectory riporta "succeeded" alla fine
@@ -479,6 +512,7 @@ class TaskExecutorNode(Node):
                 # Override per singolo waypoint con "sleep_time" nel json.
                 default_sleep = 0.4
             else:
+                self._last_task_failure_reason = f"Unrecognized task_type '{task_type}'"
                 self.get_logger().warn(
                     f"task_type '{task_type}' non riconosciuto. Salto."
                 )
@@ -487,13 +521,14 @@ class TaskExecutorNode(Node):
 
             if ok:
                 success_count += 1
-                
+
                 sleep_time = float(task_data.get('sleep_time', default_sleep))
                 if sleep_time > 0.0:
                     self.get_logger().info(f"Attesa di stabilità per {sleep_time} secondi...")
                     time.sleep(sleep_time)
             else:
                 fail_count += 1
+                failures.append((label, self._last_task_failure_reason or "unknown reason"))
 
         self.get_logger().info(
             f"Sequenza completata: OK={success_count} FAIL={fail_count}"
@@ -503,6 +538,9 @@ class TaskExecutorNode(Node):
             f"Executed {len(self.saved_poses)} tasks: "
             f"{success_count} OK, {fail_count} failed."
         )
+        if failures:
+            details = "; ".join(f"'{label}': {reason}" for label, reason in failures)
+            response.message += f" Failures: {details}."
         return response
 
 
