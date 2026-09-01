@@ -55,7 +55,11 @@ def build_pinocchio_urdf(
         raise
 
     xacro_path = os.path.join(pkg_share, xacro_relative_path)
-    final_urdf = f'/tmp/{robot_type}_pinocchio_final.urdf'
+    # PID nel nome: fk_node e ik_trajectory_node chiamano questa funzione con lo stesso
+    # robot_type in processi separati avviati in parallelo dal launcher - un path condiviso
+    # causava una race sulla open('w')/subprocess.run tra i due (uno troncava il file
+    # dell'altro a metà scrittura -> URDF corrotto -> crash immediato di entrambi).
+    final_urdf = f'/tmp/{robot_type}_pinocchio_final_{os.getpid()}.urdf'
 
     xacro_cmd = ['ros2', 'run', 'xacro', 'xacro', xacro_path] + list(xacro_args or [])
 
