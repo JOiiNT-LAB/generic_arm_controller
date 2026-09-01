@@ -17,9 +17,14 @@ import tf2_ros
 from tf2_ros import TransformException
 from tf2_ros.buffer import Buffer
 from tf2_ros.transform_listener import TransformListener
+from tf2_ros import StaticTransformBroadcaster
+from geometry_msgs.msg import TransformStamped
 import tf2_geometry_msgs
+from tf2_geometry_msgs import do_transform_pose_stamped
 
 from generic_arm_interfaces.srv import GripperCommand as GripperSrv
+
+from generic_arm_controller.marker_lock import MarkerLocker
 
 
 class TaskExecutorNode(Node):
@@ -33,6 +38,46 @@ class TaskExecutorNode(Node):
         self.declare_parameter('base_frame', 'base_link')
         self.target_frame_for_ik = self.get_parameter('base_frame').value
 
+        # ------------------------------------------------------------------
+        # Aggancio ("lock") del marker: guardo una volta, poi vado alla cieca
+        # ------------------------------------------------------------------
+        # marker_lock_mode:
+        #   'once' (default) - la posa del marker rispetto alla base viene
+        #       misurata UNA VOLTA, al primo waypoint della sequenza che ne ha
+        #       bisogno, e poi riusata identica per tutti i waypoint successivi.
+        #       Il marker puo' uscire dall'inquadratura senza conseguenze: e'
+        #       esattamente cio' che succede durante l'avvicinamento finale.
+        #       E' il comportamento corretto per un pick: rileggere il marker a
+        #       ogni waypoint sposta il bersaglio tra un passo e l'altro, perche'
+        #       con la camera sulla flangia l'errore residuo di calibrazione
+        #       mano-occhio si proietta su ^B T_M in modo dipendente dal punto di
+        #       vista - e i punti di vista dei vari waypoint sono diversi.
+        #       Con il lock, la geometria relativa insegnata (pre-grasp -> grasp)
+        #       viene riprodotta esattamente anche in presenza di un offset
+        #       globale sulla stima del marker.
+        #   'live' - comportamento storico: rilettura a ogni waypoint con
+        #       fallback sull'ultima lettura buona. Mantenuto per confronto/debug.
+        #
+        # Il lock viene rilasciato all'inizio di OGNI sequenza: tra un'esecuzione
+        # e l'altra l'oggetto puo' essere stato spostato, quindi va sempre
+        # ri-osservato almeno una volta.
+        self.declare_parameter('camera_optical_frame', 'camera_color_optical_frame')
+        self.declare_parameter('marker_min_reliable_distance_m', 0.20)
+        self.declare_parameter('marker_max_tf_age_s', 0.5)
+        self.declare_parameter('marker_lock_samples', 5)
+        self.declare_parameter('marker_lock_mode', 'once')
+        self.camera_optical_frame = self.get_parameter('camera_optical_frame').value
+        self.marker_min_reliable_distance_m = self.get_parameter(
+            'marker_min_reliable_distance_m').value
+        self.marker_max_tf_age_s = self.get_parameter('marker_max_tf_age_s').value
+        self.marker_lock_samples = self.get_parameter('marker_lock_samples').value
+        self.marker_lock_mode = str(self.get_parameter('marker_lock_mode').value).lower()
+        if self.marker_lock_mode not in ('once', 'live'):
+            self.get_logger().warn(
+                f"marker_lock_mode='{self.marker_lock_mode}' non valido: uso 'once'."
+            )
+            self.marker_lock_mode = 'once'
+
         self.reentrant_callback_group = ReentrantCallbackGroup()
 
         # execute_saved_tasks_callback gira su ReentrantCallbackGroup (necessario per gli
@@ -45,7 +90,8 @@ class TaskExecutorNode(Node):
 
         # TF2
         self.tf_buffer = Buffer()
-        self.tf_listener = TransformListener(self.tf_buffer, self)
+        self.tf_listener = TransformListener(self.tf_buffer, self, spin_thread=True)
+        self._static_tf_broadcaster = StaticTransformBroadcaster(self)
 
         # Publisher IK
         self.target_pose_publisher = self.create_publisher(
@@ -91,6 +137,23 @@ class TaskExecutorNode(Node):
         self.ik_completion_timeout     = 20.0
         self.gripper_timeout           = 10.0
 
+        # Frame per cui vale la logica di aggancio - non ha senso per un
+        # source_frame "assoluto" tipo base_frame, solo per frame rilevati dalla
+        # camera. Indicizzato per nome: piu' marker (es. "marker_26",
+        # "marker_28") hanno ognuno il proprio lock indipendente.
+        self._trackable_frames = ("aruco_marker",)
+        self._locker = MarkerLocker(
+            node=self,
+            tf_buffer=self.tf_buffer,
+            base_frame=self.target_frame_for_ik,
+            camera_optical_frame=self.camera_optical_frame,
+            min_distance_m=self.marker_min_reliable_distance_m,
+            max_age_s=self.marker_max_tf_age_s,
+            samples=self.marker_lock_samples,
+        )
+        # Cache usata solo in modalita' 'live' (comportamento storico).
+        self._live_cache = {}
+
         # ------------------------------------------------------------------
         # CORREZIONE QUI: Puntiamo allo stesso identico file cumulativo
         # ------------------------------------------------------------------
@@ -99,6 +162,7 @@ class TaskExecutorNode(Node):
             home_dir, 'ros2_ws/src/task_result/robot_poses_ws.json'
         )
         self.get_logger().info(f"Target Pose file per esecuzione: {self.json_file_path_ws}")
+        self.get_logger().info(f"marker_lock_mode = '{self.marker_lock_mode}'")
 
     # ------------------------------------------------------------------
     # Feedback IK
@@ -186,6 +250,92 @@ class TaskExecutorNode(Node):
         return result.success
 
     # ------------------------------------------------------------------
+    # Aggancio marker
+    # ------------------------------------------------------------------
+
+    def _locked_frame_name(self, frame: str) -> str:
+        # Nome distinto da quello del nodo di salvataggio ("_locked_teach"): i
+        # due nodi agganciano il marker in momenti diversi e pubblicherebbero
+        # valori diversi per lo stesso child_frame_id, creando un conflitto TF.
+        return f"{frame}_locked_run"
+
+    def _publish_locked_frame(self, frame: str, ts: TransformStamped):
+        """Pubblica il lock come TF statica: serve solo a poter vedere in RViz
+        dove la sequenza in corso crede che sia il marker. La trasformazione dei
+        waypoint usa direttamente `ts`, non questo frame."""
+        out = TransformStamped()
+        out.header.stamp    = self.get_clock().now().to_msg()
+        out.header.frame_id = self.target_frame_for_ik
+        out.child_frame_id  = self._locked_frame_name(frame)
+        out.transform       = ts.transform
+        self._static_tf_broadcaster.sendTransform(out)
+
+    def _resolve_marker_transform_once(self, source_frame: str, task_name: str):
+        """Modalita' 'once': ritorna il lock, acquisendolo alla prima chiamata
+        della sequenza. Dopodiche' il marker non viene piu' letto."""
+        transform, msg, is_new = self._locker.get_or_acquire(source_frame)
+        if transform is None:
+            self.get_logger().error(
+                f"{msg}. Impossibile eseguire '{task_name}': il marker deve "
+                f"essere inquadrato almeno una volta, all'inizio della sequenza. "
+                f"Metti come primo waypoint una posa assoluta da cui il marker "
+                f"sia ben visibile. Salto."
+            )
+            return None
+        if is_new:
+            self.get_logger().info(msg)
+            self._publish_locked_frame(source_frame, transform)
+            self.get_logger().info(
+                f"Da qui in poi tutti i waypoint relativi a '{source_frame}' "
+                f"useranno questa stima: il marker puo' uscire "
+                f"dall'inquadratura senza conseguenze."
+            )
+        else:
+            self.get_logger().info(
+                f"'{task_name}': uso l'aggancio su '{source_frame}' gia' "
+                f"acquisito in questa sequenza (marker non riletto)."
+            )
+        return transform
+
+    def _resolve_marker_transform_live(self, source_frame: str, task_name: str):
+        """Modalita' 'live' (storica): rilettura a ogni waypoint, con fallback
+        sull'ultima lettura buona di questa sequenza."""
+        need_fallback = False
+        fallback_reason = ""
+        transform = None
+
+        try:
+            transform = self.tf_buffer.lookup_transform(
+                self.target_frame_for_ik, source_frame, rclpy.time.Time(),
+                timeout=rclpy.duration.Duration(seconds=1.0)
+            )
+            probe, reason = self._locker.sample_once(source_frame)
+            if probe is None:
+                need_fallback = True
+                fallback_reason = reason
+            else:
+                self._live_cache[source_frame] = transform
+        except TransformException as ex:
+            need_fallback = True
+            fallback_reason = (
+                f"TF error ({source_frame}->{self.target_frame_for_ik}): {ex}"
+            )
+
+        if need_fallback:
+            transform = self._live_cache.get(source_frame)
+            if transform is None:
+                self.get_logger().error(
+                    f"{fallback_reason} per '{task_name}'. Nessuna lettura "
+                    f"precedente disponibile per '{source_frame}'. Salto."
+                )
+                return None
+            self.get_logger().warn(
+                f"{fallback_reason} per '{task_name}'. Uso l'ultima lettura "
+                f"buona di '{source_frame}' di questa sequenza."
+            )
+        return transform
+
+    # ------------------------------------------------------------------
     # Esecuzione task movimento (IK)
     # ------------------------------------------------------------------
 
@@ -221,16 +371,29 @@ class TaskExecutorNode(Node):
 
         # Trasformazione TF se necessaria
         if source_frame != target_frame_for_ik:
-            try:
-                pose = self.tf_buffer.transform(
-                    pose, target_frame_for_ik,
-                    timeout=rclpy.duration.Duration(seconds=1.0)
-                )
-            except TransformException as ex:
-                self.get_logger().error(
-                    f"TF error per '{task_name}': {ex}. Salto."
-                )
+            if source_frame in self._trackable_frames:
+                if self.marker_lock_mode == 'once':
+                    transform = self._resolve_marker_transform_once(
+                        source_frame, task_name)
+                else:
+                    transform = self._resolve_marker_transform_live(
+                        source_frame, task_name)
+            else:
+                try:
+                    transform = self.tf_buffer.lookup_transform(
+                        target_frame_for_ik, source_frame, rclpy.time.Time(),
+                        timeout=rclpy.duration.Duration(seconds=1.0)
+                    )
+                except TransformException as ex:
+                    self.get_logger().error(
+                        f"TF error ({source_frame}->{target_frame_for_ik}) per "
+                        f"'{task_name}': {ex}. Salto."
+                    )
+                    return False
+
+            if transform is None:
                 return False
+            pose = do_transform_pose_stamped(pose, transform)
 
         # Publish + attesa feedback
         self.ik_action_result_received = False
@@ -276,6 +439,12 @@ class TaskExecutorNode(Node):
 
     def _execute_saved_tasks(self, response: Trigger_Response):
         self.get_logger().info("Avvio sequenza task.")
+
+        # Ogni nuova sequenza riparte senza aggancio: il marker (o altro frame)
+        # potrebbe essersi spostato dall'ultima esecuzione, quindi va ri-osservato
+        # almeno una volta. Da li' in poi resta agganciato per tutta la sequenza.
+        self._locker.release()
+        self._live_cache = {}
 
         if not self.load_poses_from_file():
             response.success = False
@@ -354,4 +523,3 @@ def main(args=None):
 
 if __name__ == '__main__':
     main()
-    

@@ -46,3 +46,22 @@
     # ----- Gripper -----
     default_gripper_type: "franka_hand"
     franka_hand_gripper_action: "/franka_gripper/gripper_action"
+
+    # ----- Marker / visione (aggancio one-shot) -----
+    # La posa del marker rispetto alla base viene misurata UNA VOLTA e poi
+    # riusata per tutti i waypoint: il marker puo' uscire dall'inquadratura
+    # durante l'avvicinamento senza far fallire nulla. Vedi marker_lock.py.
+    camera_optical_frame: "camera_color_optical_frame"
+    # Sotto questa distanza dalla camera la stima ArUco e' inaffidabile e la
+    # rilevazione viene scartata (non usata per agganciare).
+    marker_min_reliable_distance_m: 0.20
+    # Eta' massima della rilevazione: senza questo controllo il buffer tf2
+    # continua a restituire l'ultima detection per 10 s dopo che il marker e'
+    # sparito, senza sollevare eccezioni.
+    marker_max_tf_age_s: 0.5
+    # Numero di rilevazioni mediate per acquisire l'aggancio. La dispersione
+    # tra i campioni viene loggata: e' l'indice di qualita' della rilevazione.
+    marker_lock_samples: 5
+    # 'once' = misura una volta per sequenza (default, corretto per il pick).
+    # 'live' = rilegge a ogni waypoint (comportamento storico, solo per debug).
+    marker_lock_mode: "once"
