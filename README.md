@@ -1,4 +1,16 @@
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="images/ARISE_logo-dark_mode.png">
+  <source media="(prefers-color-scheme: light)" srcset="images/ARISE_logo-light_mode.png">
+  <img alt="ARISE logo" src="images/ARISE_logo-light_mode.png" width="300">
+</picture>
+
 # Generic Arm Controller - Modular Robotic Control System
+
+## 🌍 About ARISE
+
+ARISE aims towards making industrial HRI more accessible and cost-effective, in particular in healthcare, intra-logistics and manufacturing sectors. These modules hope to present an integration between FIWARE Orion Context Broker and eProsima Vulcanexus to enable context-aware robotic and industrial applications, alongside ROS4HRI as an open-source ROS standard and a set of ROS packages to facilitate the development of Human-Robot Interaction (HRI) capabilities on robots.
+
+---
 
 ## 📋 Overview
 
@@ -506,3 +518,9 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 
 **Last Updated:** June 2026
 **Maintainer:** JOiiNT-LAB
+
+---
+
+<img alt="Co-funded by the European Union" src="images/EN_Co_fundedbytheEU_RGB_Monochrome.png" width="250">
+
+Funded by the European Union. Views and opinions expressed are however those of the author(s) only and do not necessarily reflect those of the European Union or HADEA. Neither the European Union nor the granting authority can be held responsible for them.
