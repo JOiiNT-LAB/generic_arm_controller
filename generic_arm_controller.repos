@@ -1,0 +1,5 @@
+repositories:
+  generic_arm_interfaces:
+    type: git
+    url: git@github.com:JOiiNT-LAB/generic_arm_interfaces.git
+    version: main

@@ -40,6 +40,16 @@ This package provides a modular and generic control system for robotic arms (UR,
 
 ---
 
+## 📦 Standalone Build
+
+This package depends on `generic_arm_interfaces` (shared `.srv` definitions). If you clone this repo on its own, outside the `ros2_arise_vulcanexus_V2` workspace, pull it in with [vcstool](https://github.com/dirk-thomas/vcstool) before building:
+
+```bash
+vcs import < generic_arm_controller.repos
+```
+
+---
+
 ## 🚀 Quick Start
 
 ### Option 1: Traditional Launcher (All-in-One)
