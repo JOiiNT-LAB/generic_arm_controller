@@ -8,7 +8,6 @@ This package provides a modular and generic control system for robotic arms (UR,
 - **ArUco marker recognition** for dynamic picking
 - **Gripper control** (QB Softhand Industry, Robotiq, RG2, etc.)
 - **Task system** to save and execute movement sequences
-- **Conversational LLM interface** for natural language commands
 
 ---
 
@@ -36,13 +35,20 @@ This package provides a modular and generic control system for robotic arms (UR,
 | **ArUco Detection** | Marker recognition | `aruco_ros/single.launch.py` |
 | **Task Manager** | Save/execute sequences | `task_saving_node_complete`, `task_executor_node_complete` |
 | **Gripper** | Gripper control | `/gripper/command` service |
-| **LLM Interface** | Interactive chat | `llm_app/chatlive` |
 
 ---
 
+## 🔗 Related Packages
+
+| Package | Repo | Relation |
+|---|---|---|
+| [`generic_arm_interfaces`](https://github.com/JOiiNT-LAB/generic_arm_interfaces) | own submodule | **Dependency.** Defines the `GripperCommand`/`SavePose` services this package implements (`/gripper/command`, `/save_pose`). Kept in its own repo — not nested here — so other clients can depend on the service contract without pulling in this whole package. |
+
+This package is a self-contained control layer: it only knows about `generic_arm_interfaces`. Anything built on top of it (natural-language interfaces, orchestration, ...) is documented in the top-level [project README](../../../README.md), not here — see modularity note there.
+
 ## 📦 Standalone Build
 
-This package depends on `generic_arm_interfaces` (shared `.srv` definitions). If you clone this repo on its own, outside the `ros2_arise_vulcanexus_V2` workspace, pull it in with [vcstool](https://github.com/dirk-thomas/vcstool) before building:
+This package depends on `generic_arm_interfaces` (shared `.srv` definitions, see table above). If you clone this repo on its own, outside the `ros2_arise_vulcanexus_V2` workspace, pull it in with [vcstool](https://github.com/dirk-thomas/vcstool) before building:
 
 ```bash
 vcs import < generic_arm_controller.repos
@@ -280,27 +286,6 @@ ros2 launch aruco_ros single.launch.py \
 
 ---
 
-## 🗣️ LLM Interface (Natural Commands)
-
-### Interactive Chat
-
-Open a second terminal:
-
-```bash
-ros2 run llm_app chatlive
-```
-
-**Available Commands:**
-- `"Save home pose"` → Save absolute pose
-- `"Close gripper"` → Gripper close
-- `"Open gripper"` → Gripper open
-- `"Execute tasks"` → Execute saved sequence
-- `"Clear poses"` → Clear saved sequence
-
-No "go to [x, y, z]" intent exists in the chat — direct Cartesian moves are done via the `/target_cartesian_pose` topic, not natural language.
-
----
-
 ## 🏭 Gazebo Simulation
 
 ### With UR Description + Camera + Robotiq
@@ -444,8 +429,7 @@ system_setup.launch.py (Orchestrator)
 ├── sensors/realsense_sensor.launch.py (optional)
 ├── sensors/aruco_sensor.launch.py (optional)
 ├── task_executor_node
-├── task_saving_node
-└── llm_app (delayed start)
+└── task_saving_node
 ```
 
 This architecture allows you to:
