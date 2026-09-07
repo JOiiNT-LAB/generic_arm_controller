@@ -70,97 +70,34 @@ vcs import < generic_arm_controller.repos
 
 ## 🚀 Quick Start
 
-### Option 1: Traditional Launcher (All-in-One)
+`robot_vision_ik_traj_setup.launch.py` is the one launcher this package ships: it starts the robot-agnostic control stack (IK/FK, gripper, task manager) plus optional vision, selecting robot-specific frames/topics purely from `generic_arm_controller/config/robots/<robot>.yaml` via the `robot:=` argument — no per-robot Python launch files needed here.
 
-This is the original `robot_vision_ik_traj_setup.launch.py` - simpler but less modular.
+How you invoke it depends on where the robot is running:
 
-#### Scenario 1: Pure Simulation (without hardware)
+- **Simulation (Gazebo):** don't call it directly — launch it through [`arm_gz_bringup/launch/bringup.launch.py`](../../arm_gz_bringup/launch/bringup.launch.py), which starts the matching Gazebo/`ros2_control` bringup *and* includes this launcher with the same `robot:=` name. See the top-level [Multi-Robot Usage Guide](../../../README.md#-multi-robot-usage-guide) for the full argument list (`enable_realsense`, `enable_qb`, `enable_llm`, `open_chat`).
+- **Real hardware:** the robot driver (`ur_robot_driver`, `franka_bringup`, or a separate real-time PC for `fr3_real`) is started independently, then this launcher is called directly — see [Real Hardware Setup](#-real-robot---physical-ur10e) below and the top-level README's [Real Hardware per Robot](../../../README.md#real-hardware-per-robot) section for Franka.
+
+#### Examples (direct invocation, e.g. on real hardware)
 
 ```bash
+# Default profile (ur10e), no extras
 ros2 launch generic_arm_controller robot_vision_ik_traj_setup.launch.py
-```
 
-#### Scenario 2: With RealSense
+# Franka FR3 profile
+ros2 launch generic_arm_controller robot_vision_ik_traj_setup.launch.py robot:=fr3
 
-```bash
+# With RealSense
 ros2 launch generic_arm_controller robot_vision_ik_traj_setup.launch.py enable_realsense:=true
-```
 
-#### Scenario 3: With QB Softhand
-
-```bash
+# With QB Softhand
 ros2 launch generic_arm_controller robot_vision_ik_traj_setup.launch.py enable_qb:=true
-```
 
-#### Scenario 4: Complete System
-
-```bash
+# Complete: robot + vision + gripper
 ros2 launch generic_arm_controller robot_vision_ik_traj_setup.launch.py \
-  enable_realsense:=true \
-  enable_qb:=true
+  robot:=fr3 enable_realsense:=true enable_qb:=true
 ```
 
----
-
-### Option 2: Modular Launcher (Recommended) 🌟
-
-This is the new `system_setup.launch.py` - modular, scalable, and easier to compose different hardware configurations.
-
-#### With UR10e + Robotiq Gripper
-
-```bash
-ros2 launch generic_arm_controller system_setup.launch.py \
-  robot:=ur10e \
-  gripper:=robotiq
-```
-
-#### With UR10e + Robotiq + RealSense
-
-```bash
-ros2 launch generic_arm_controller system_setup.launch.py \
-  robot:=ur10e \
-  gripper:=robotiq \
-  enable_realsense:=true
-```
-
-#### With UR10e + QB Softhand + RealSense + ArUco
-
-```bash
-ros2 launch generic_arm_controller system_setup.launch.py \
-  robot:=ur10e \
-  gripper:=qb_softhand \
-  enable_realsense:=true \
-  enable_aruco:=true
-```
-
-#### With Custom Target Frame (for different robots)
-
-```bash
-# Franka Panda (uses panda_link0 instead of base_link)
-ros2 launch generic_arm_controller system_setup.launch.py \
-  robot:=franka \
-  target_frame:=panda_link0 \
-  gripper:=robotiq
-
-# KUKA LBR (uses base instead of base_link)
-ros2 launch generic_arm_controller system_setup.launch.py \
-  robot:=kuka \
-  target_frame:=base \
-  gripper:=robotiq
-```
-
----
-
-### Launch Arguments Comparison
-
-| Argument | Launcher 1 | Launcher 2 |
-|----------|-----------|-----------|
-| `enable_realsense` | ✓ | ✓ |
-| `enable_qb` | ✓ | Uses `gripper:=qb_softhand` |
-| `robot` | ❌ | ✓ (ur10e, franka, etc.) |
-| `gripper` | ❌ | ✓ (robotiq, qb_softhand, rg2) |
-| `target_frame` | ✓ | ✓ |
-| `enable_aruco` | ✓ | ✓ |
+There's no independent `gripper:=` argument: which gripper driver comes up is tied to the robot (`default_gripper_type` in that robot's YAML profile; QB Softhand is opt-in via `enable_qb`). Adding a new robot means adding `config/robots/<robot>.yaml` — see [Adding a New Robot](../../../README.md#adding-a-new-robot) in the top-level README.
 
 ---
 
@@ -408,91 +345,27 @@ See the main [README's End-to-End Validation Tutorial](../../../README.md#-end-t
 ```
 generic_arm_controller/
 ├── launch/
-│   ├── robot_vision_ik_traj_setup.launch.py (Traditional all-in-one launcher)
-│   ├── system_setup.launch.py (NEW - Modular orchestrator)
-│   ├── robots/
-│   │   └── ur10e.launch.py (UR10e robot config)
-│   ├── grippers/
-│   │   ├── robotiq_gripper.launch.py (Robotiq RG2/RG6)
-│   │   └── qb_softhand.launch.py (QB Softhand Industry)
-│   └── sensors/
-│       ├── realsense_sensor.launch.py (RealSense RGB-D)
-│       └── aruco_sensor.launch.py (ArUco detection)
+│   └── robot_vision_ik_traj_setup.launch.py   (control stack: IK/FK, gripper, task manager, vision)
 ├── generic_arm_controller/
 │   ├── ik_trajectory_node.py
-│   ├── task_saving_node_complete.py
-│   ├── task_executor_node_complete.py
 │   ├── fk_node.py
 │   ├── gripper_manager.py
-│   └── ...
+│   ├── task_saving_node_complete.py
+│   ├── task_executor_node_complete.py
+│   ├── urdf_loader.py
+│   ├── marker_lock.py
+│   ├── check_saved_deltas.py
+│   └── validate_pipeline.py
 ├── config/
-│   └── ik_trajectory_node_params.yaml
+│   └── robots/
+│       ├── ur10e.yaml
+│       ├── fr3.yaml
+│       └── fr3_real.yaml
 └── calibration_results/
-    └── hand_eye_transform.yaml
+    └── hand_eye_transform_<robot>.yaml
 ```
 
-### Launcher Architecture
-
-**Modular Design (NEW `system_setup.launch.py`):**
-```
-system_setup.launch.py (Orchestrator)
-├── robots/ur10e.launch.py
-├── grippers/robotiq_gripper.launch.py (or qb_softhand.launch.py)
-├── sensors/realsense_sensor.launch.py (optional)
-├── sensors/aruco_sensor.launch.py (optional)
-├── task_executor_node
-└── task_saving_node
-```
-
-This architecture allows you to:
-- ✅ Swap robot configurations (e.g., ur10e → franka)
-- ✅ Swap gripper types (e.g., robotiq → qb_softhand → rg2)
-- ✅ Enable/disable sensors independently
-- ✅ Keep logic nodes separate from hardware configuration
-
----
-
-## 🔧 Configuration
-
-### Parametric Target Frame
-
-The system supports different robot configurations via the `target_frame` parameter:
-
-```bash
-# For UR (default: base_link)
-ros2 launch generic_arm_controller system_setup.launch.py robot:=ur10e
-
-# For Franka Panda (panda_link0)
-ros2 launch generic_arm_controller system_setup.launch.py robot:=ur10e target_frame:=panda_link0
-
-# For KUKA LBR (base)
-ros2 launch generic_arm_controller system_setup.launch.py robot:=ur10e target_frame:=base
-```
-
-### Adding New Robot Configurations
-
-To add support for a new robot (e.g., Franka):
-
-1. Create `launch/robots/franka.launch.py` with your robot-specific nodes
-2. Update `system_setup.launch.py` to include it:
-   ```python
-   franka_launcher = IncludeLaunchDescription(
-       PathJoinSubstitution([...]),
-       condition=IfCondition(LaunchConfiguration('robot') == 'franka')
-   )
-   ```
-
-### Adding New Gripper Types
-
-To add a new gripper (e.g., RG2):
-
-1. Create `launch/grippers/rg2_gripper.launch.py`
-2. Update `system_setup.launch.py` to include it
-3. Use it:
-   ```bash
-   ros2 launch generic_arm_controller system_setup.launch.py \
-     robot:=ur10e gripper:=rg2
-   ```
+Robot-agnosticism lives entirely in `config/robots/<robot>.yaml` (`base_frame`, `end_effector_frame`, `joint_names`, `action_server_name`, `default_gripper_type`, IK tuning), read by every node above — there is no per-robot Python code or per-robot launch file in this package. The Gazebo/`ros2_control` side of "swap robot configurations" lives one level up, in the `arm_gz_bringup` package (`arm_gz_bringup/launch/<robot>.launch.py`), orchestrated together with this package's launcher by `arm_gz_bringup/launch/bringup.launch.py` — see the top-level README's [Multi-Robot Usage Guide](../../../README.md#-multi-robot-usage-guide) and [Adding a New Robot](../../../README.md#adding-a-new-robot).
 
 ---
 
