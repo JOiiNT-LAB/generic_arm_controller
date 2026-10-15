@@ -32,7 +32,7 @@ setup(
     zip_safe=True,
     maintainer='Your Name',
     maintainer_email='your_email@example.com',
-    description='Generic ROS2 package for controlling and manipulating robotic arms (UR, Franka, KUKA, etc.).',
+    description='Generic ROS2 package for controlling and manipulating robotic arms (Universal Robots, Franka).',
     license='Apache-2.0',
     tests_require=['pytest'],
     entry_points={

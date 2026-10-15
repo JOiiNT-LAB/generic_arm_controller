@@ -14,7 +14,7 @@ ARISE aims towards making industrial HRI more accessible and cost-effective, in 
 
 ## 📋 Overview
 
-This package provides a modular and generic control system for robotic arms (UR, Franka, KUKA, etc.) with integration of:
+This package provides a modular and generic control system for robotic arms (Universal Robots, Franka) with integration of:
 - **Robotic arm control** with forward/inverse kinematics
 - **Artificial vision** via RealSense RGB-D
 - **ArUco marker recognition** for dynamic picking
