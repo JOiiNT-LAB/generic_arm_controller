@@ -33,7 +33,7 @@ from geometry_msgs.msg import PoseStamped
 from std_srvs.srv import Trigger
 from generic_arm_interfaces.srv import SavePose, GripperCommand
 
-ORIENTATION = (0.0, 1.0, 0.0, 0.0)  # gripper pointing down, same as the README/note.md examples
+ORIENTATION = (0.0, 1.0, 0.0, 0.0)  # gripper pointing down, same as the README examples
 REACH_TOLERANCE = 0.03   # m
 REACH_TIMEOUT = 8.0      # s - profile's trajectory_duration is 3s, leave margin
 SETTLE_TIME = 4.0        # extra settle time before trusting a "reached" pose
