@@ -42,6 +42,11 @@
 
     # ----- Traiettoria -----
     trajectory_duration: 3.0
+    # Joint-space safety limits (see ik_safety.py). The trajectory is stretched so no
+    # joint exceeds max_joint_speed [rad/s]; a move where any joint travels more than
+    # max_joint_step_rad [rad] is refused. 0 disables a limit. Starting values, tune per robot.
+    max_joint_speed: 1.0
+    max_joint_step_rad: 3.14
 
     # ----- Gripper -----
     default_gripper_type: "franka_hand"

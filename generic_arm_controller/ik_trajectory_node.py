@@ -13,6 +13,7 @@ from trajectory_msgs.msg import JointTrajectoryPoint
 
 import pinocchio as pin
 
+from generic_arm_controller.ik_safety import check_target_pose, plan_trajectory_duration
 from generic_arm_controller.urdf_loader import build_pinocchio_urdf
 
 
@@ -38,6 +39,12 @@ class IKTrajectoryNode(Node):
     ik_dt               : float — IK integration time step (default: 0.1)
     ik_damping          : float — Damped least-squares damping factor (default: 0.05)
     trajectory_duration : float — Trajectory execution duration in seconds (default: 3.0)
+    base_frame          : str   — Frame the targets must be expressed in; poses stamped in another
+                                  frame are refused (default: '' = no frame check)
+    max_joint_speed     : float — rad/s; the duration is stretched so no joint exceeds it
+                                  (default: 0.0 = disabled)
+    max_joint_step_rad  : float — rad; a trajectory where any joint moves more than this is
+                                  refused (default: 0.0 = disabled)
     """
 
     def __init__(self):
@@ -76,6 +83,9 @@ class IKTrajectoryNode(Node):
         self.declare_parameter('ik_dt',               0.1)
         self.declare_parameter('ik_damping',          0.05)
         self.declare_parameter('trajectory_duration', 3.0)
+        self.declare_parameter('base_frame',          '')
+        self.declare_parameter('max_joint_speed',     0.0)
+        self.declare_parameter('max_joint_step_rad',  0.0)
 
         # ------------------------------------------------------------------ #
         # Read parameters
@@ -97,6 +107,19 @@ class IKTrajectoryNode(Node):
         self.dt                  = self.get_parameter('ik_dt').value
         self.damping             = self.get_parameter('ik_damping').value
         self.trajectory_duration = self.get_parameter('trajectory_duration').value
+        self.base_frame = self.get_parameter('base_frame').value
+        self.max_joint_speed = self.get_parameter('max_joint_speed').value
+        self.max_joint_step = self.get_parameter('max_joint_step_rad').value
+
+        if not self.base_frame:
+            self.get_logger().warn(
+                "Parameter 'base_frame' is empty: the frame_id of target poses is NOT checked."
+            )
+        if self.max_joint_speed <= 0.0 and self.max_joint_step <= 0.0:
+            self.get_logger().warn(
+                "'max_joint_speed' and 'max_joint_step_rad' are both disabled: "
+                "no limit on the size/speed of joint-space jumps."
+            )
 
         self.get_logger().info(
             f'Starting IK node | robot: {robot_type} | package: {urdf_package} | '
@@ -233,6 +256,19 @@ class IKTrajectoryNode(Node):
             f'Target pose: pos=({p.position.x:.3f}, {p.position.y:.3f}, {p.position.z:.3f})'
         )
 
+        error = check_target_pose(
+            (p.position.x, p.position.y, p.position.z),
+            (p.orientation.x, p.orientation.y, p.orientation.z, p.orientation.w),
+            msg.header.frame_id, self.base_frame,
+        )
+        if error:
+            self._publish_failure(error)
+            return
+        if not msg.header.frame_id and self.base_frame:
+            self.get_logger().warn(
+                f"Target pose has an empty frame_id: assuming '{self.base_frame}'."
+            )
+
         q_norm = math.sqrt(
             p.orientation.w ** 2 + p.orientation.x ** 2 +
             p.orientation.y ** 2 + p.orientation.z ** 2
@@ -301,6 +337,19 @@ class IKTrajectoryNode(Node):
             self._publish_failure('Could not resolve joint positions — trajectory not sent.')
             return
 
+        duration, error = plan_trajectory_duration(
+            current_pos, solution_pos, self.trajectory_duration,
+            self.max_joint_speed, self.max_joint_step,
+        )
+        if error:
+            self._publish_failure(error)
+            return
+        if duration > self.trajectory_duration:
+            self.get_logger().info(
+                f'Trajectory slowed from {self.trajectory_duration:.1f}s to {duration:.1f}s '
+                f'(max_joint_speed={self.max_joint_speed} rad/s).'
+            )
+
         goal                        = FollowJointTrajectory.Goal()
         goal.trajectory.joint_names = self.joint_names
 
@@ -310,11 +359,11 @@ class IKTrajectoryNode(Node):
         p0.time_from_start.nanosec = 0
         goal.trajectory.points.append(p0)
 
-        dur_sec                     = int(self.trajectory_duration)
+        dur_sec                     = int(duration)
         p1                          = JointTrajectoryPoint()
         p1.positions                = solution_pos
         p1.time_from_start.sec     = dur_sec
-        p1.time_from_start.nanosec = int((self.trajectory_duration - dur_sec) * 1e9)
+        p1.time_from_start.nanosec = int((duration - dur_sec) * 1e9)
         goal.trajectory.points.append(p1)
 
         self.get_logger().info('Sending trajectory goal...')
