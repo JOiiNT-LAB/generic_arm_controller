@@ -27,6 +27,7 @@ setup(
         'setuptools',
         'pinocchio', # Keep if this is a pip-installable Python package
         'numpy',
+        'scipy',
         'pyyaml'
     ],
     zip_safe=True,
@@ -43,6 +44,9 @@ setup(
             f'task_executor_node_complete = {package_name}.task_executor_node_complete:main',
             f'gripper_node = {package_name}.gripper_manager:main',
             f'validate_pipeline = {package_name}.validate_pipeline:main',
+            f'install_hand_eye = {package_name}.install_hand_eye:main',
+            f'capture_hand_eye = {package_name}.capture_hand_eye:main',
+            f'evaluate_hand_eye = {package_name}.evaluate_hand_eye:main',
         ],
     },
 )
