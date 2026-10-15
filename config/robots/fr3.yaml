@@ -58,7 +58,9 @@
 
     # ----- Gripper -----
     default_gripper_type: "franka_hand"
-    franka_hand_gripper_action: "/franka_gripper/gripper_action"
+    # Served in Gazebo by the franka_gripper GripperActionController that
+    # arm_gz_bringup/launch/fr3.launch.py spawns (the standard action name is gripper_cmd).
+    franka_hand_gripper_action: "/franka_gripper/gripper_cmd"
 
     # ----- Marker / visione (aggancio one-shot) -----
     # La posa del marker rispetto alla base viene misurata UNA VOLTA e poi

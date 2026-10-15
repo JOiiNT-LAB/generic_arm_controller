@@ -365,7 +365,11 @@ class GripperManager(Node):
         )
 
         goal_msg = GripperAction.Goal()
-        goal_msg.command.position = franka_width
+        # GripperCommand.position is per finger, i.e. half the opening: franka_gripper's
+        # action server moves to width = 2 * position (gripper_action_server.cpp), and so
+        # does a GripperActionController on fr3_finger_joint1 in Gazebo. Sending the full
+        # width asked for twice the opening, which an open command could never reach.
+        goal_msg.command.position = franka_width / 2.0
         goal_msg.command.max_effort = 20.0  # Grasping force (N)
 
         self.get_logger().info(f'[FrankaHand] Sending goal width: {franka_width:.3f} m')
