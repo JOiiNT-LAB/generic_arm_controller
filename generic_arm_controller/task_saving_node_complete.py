@@ -236,23 +236,23 @@ class PoseSaverNode(Node):
         source_frame = ""
         pose_type    = ""
 
+        # Two modes: 0 = robot base, 1 = marker. There is no camera-relative mode: the
+        # camera is mounted on the arm, so the end effector is always at the same offset
+        # from it and such a pose would replay to wherever the arm already is.
         if request.save_mode == 0:
             pose_type    = "absolute"
             source_frame = self.base_frame
         elif request.save_mode == 1:
             pose_type    = "relative"
-            source_frame = "camera_color_optical_frame"
-        elif request.save_mode == 2:
-            pose_type    = "relative"
-            source_frame = request.reference_frame
-            if not source_frame:
-                response.success = False
-                response.message = "ERROR: save_mode=2 richiede reference_frame."
-                self.get_logger().error(response.message)
-                return response
+            source_frame = request.reference_frame or "aruco_marker"
         else:
             response.success = False
-            response.message = f"ERROR: save_mode={request.save_mode} non valido."
+            response.message = (
+                f"ERROR: invalid save_mode={request.save_mode}. "
+                "Use 0 (robot base) or 1 (ArUco marker)."
+            )
+            if request.save_mode == 2:
+                response.message += " Marker-relative saving is now save_mode=1."
             self.get_logger().error(response.message)
             return response
 

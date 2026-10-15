@@ -6,7 +6,8 @@ The calibration node (handeye_ros2) writes its result to
 <workspace>/calibration_results/hand_eye_calibration_ws_results.yaml. This tool checks it,
 shows how far it is from the calibration in use, keeps a backup of the old one and writes
 the new one where the launch files read it. That single file feeds the real robot and the
-simulation (see CLAUDE.md), so recalibrating once updates both.
+simulation (hand_eye_tf_from_urdf in config/robots/fr3.yaml), so recalibrating once updates
+both.
 
 Usage:
     ros2 run generic_arm_controller install_hand_eye --robot fr3_real --dry-run

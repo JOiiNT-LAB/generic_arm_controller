@@ -483,8 +483,6 @@ class TaskExecutorNode(Node):
             return response
 
         success_count = 0
-        fail_count    = 0
-        failures      = []  # [(label, reason), ...] - for the response message
 
         for i, task_data in enumerate(self.saved_poses):
             task_type = task_data.get('task_type', 'move')
@@ -527,20 +525,26 @@ class TaskExecutorNode(Node):
                     self.get_logger().info(f"Attesa di stabilità per {sleep_time} secondi...")
                     time.sleep(sleep_time)
             else:
-                fail_count += 1
-                failures.append((label, self._last_task_failure_reason or "unknown reason"))
+                # Stop at the first failure: the next steps were taught assuming this one
+                # succeeded (e.g. a gripper close after a move that never happened).
+                reason = self._last_task_failure_reason or "unknown reason"
+                skipped = len(self.saved_poses) - (i + 1)
+                self.get_logger().error(
+                    f"Sequence stopped at step {i+1}/{len(self.saved_poses)} "
+                    f"('{label}'): {reason}. {skipped} remaining steps not executed."
+                )
+                response.success = False
+                response.message = (
+                    f"Stopped at step {i+1}/{len(self.saved_poses)} ('{label}'): {reason}. "
+                    f"{success_count} steps OK before it, {skipped} not executed."
+                )
+                return response
 
-        self.get_logger().info(
-            f"Sequenza completata: OK={success_count} FAIL={fail_count}"
-        )
-        response.success = (fail_count == 0)
+        self.get_logger().info(f"Sequence completed: {success_count} steps OK.")
+        response.success = True
         response.message = (
-            f"Executed {len(self.saved_poses)} tasks: "
-            f"{success_count} OK, {fail_count} failed."
+            f"Executed {len(self.saved_poses)} tasks: {success_count} OK, 0 failed."
         )
-        if failures:
-            details = "; ".join(f"'{label}': {reason}" for label, reason in failures)
-            response.message += f" Failures: {details}."
         return response
 
 
