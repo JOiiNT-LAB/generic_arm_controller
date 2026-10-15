@@ -14,8 +14,16 @@
       - "ee_id:=franka_hand"
 
     # ----- Cinematica -----
-    end_effector_frame: "fr3_hand_tcp"    # con Franka Hand (hand:=true). Senza gripper: "fr3_link8"
+    # Poses are always taken at the flange (last link), like on the real robot
+    # (fr3_real.yaml uses panda_link8) and like the hand-eye calibration: this way saved
+    # poses mean the same thing in simulation and on the real FR3.
+    end_effector_frame: "fr3_link8"
     base_frame: "fr3_link0"
+    # In simulation the camera is part of the robot model (arm_gz_bringup/urdf/
+    # fr3_camera.gazebo.xacro, placed with the real hand-eye calibration), so its TF is
+    # already published by robot_state_publisher: don't publish it a second time from
+    # calibration_results/hand_eye_transform_<robot>.yaml.
+    hand_eye_tf_from_urdf: true
     joint_names:
       - "fr3_joint1"
       - "fr3_joint2"

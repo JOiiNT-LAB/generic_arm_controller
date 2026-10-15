@@ -1,3 +1,4 @@
+from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import (
     DeclareLaunchArgument,
@@ -16,8 +17,20 @@ import yaml
 # ---------------------------------------------------------------------------
 # Helper: legge la calibrazione mano-occhio e crea il static_transform_publisher
 # ---------------------------------------------------------------------------
+def _robot_profile(robot):
+    """Parameters of config/robots/<robot>.yaml (the profile shared by all nodes)."""
+    profile_path = os.path.join(
+        get_package_share_directory('generic_arm_controller'),
+        'config', 'robots', f'{robot}.yaml')
+    with open(profile_path, 'r') as f:
+        return yaml.safe_load(f)['/**']['ros__parameters']
+
+
 def load_calibration_from_yaml(context):
     robot = LaunchConfiguration('robot').perform(context)
+    if _robot_profile(robot).get('hand_eye_tf_from_urdf', False):
+        # Simulation: the camera is in the robot model, its TF is already published.
+        return []
     calibration_file_path = PathJoinSubstitution([
         FindPackageShare('generic_arm_controller'),
         'calibration_results',
