@@ -53,6 +53,7 @@ stack for the profile `config/robots/<robot>.yaml`:
 | `enable_realsense` | `false` | include `realsense2_camera/rs_launch.py` |
 | `enable_qb` | `false` | include the QB SoftHand Industry driver |
 | `enable_llm` | `true` | include `llm_app/llm_app.launch.py` after 3 s (needs `llm_app` and `launch_pal`) |
+| `enable_gestures` | `false` | include `hand_gestures/hand_gestures.launch.py` after 3 s: webcam hand gestures, commands sent through `llm_app` (see [gesture control](../../../docs/gesture-control.md)) |
 | `marker_id` / `marker_size` | `26` / `0.15` | ArUco marker id and side in metres |
 | `aruco_image_topic` / `aruco_camera_info_topic` | `/camera/camera/color/image_raw` / `.../camera_info` | camera topics for `aruco_ros` |
 
@@ -79,7 +80,7 @@ the robot model, as in the FR3 simulation).
 | `fk_node` | `/joint_states` | `/fk_pose` (PoseStamped, end effector in `base_frame`) | — |
 | `gripper_node` | `/joint_states` (Robotiq feedback) | gripper-specific commands, see [Grippers](#grippers) | server `/gripper/command` (`GripperCommand`) |
 | `task_saving_node_complete` | TF | static TF `aruco_marker_locked_teach` | servers `/save_pose` (`SavePose`), `/save_gripper_action` (`GripperCommand`), `/clear_saved_poses`, `/relock_marker` (`Trigger`) |
-| `task_executor_node_complete` | `/ik_action_result`, `/ik_action_result_reason`, TF | `/target_cartesian_pose`, static TF `aruco_marker_locked_run` | server `/execute_saved_tasks` (`Trigger`); client `/gripper/command` |
+| `task_executor_node_complete` | `/ik_action_result`, `/ik_action_result_reason`, TF | `/target_cartesian_pose`, static TF `aruco_marker_locked_run`, `/teach_mode` (Bool, latched) | servers `/execute_saved_tasks` (`Trigger`), `/set_teach_mode` (`SetBool`); clients `/gripper/command`, `<controller_manager>/list_controllers`, `/switch_controller` |
 | `aruco_single` (`aruco_ros`) | `aruco_image_topic`, `aruco_camera_info_topic` | TF `camera_color_optical_frame` → `aruco_marker`, `/aruco_single/pose` | — |
 
 Topic names come from the profile (`pose_topic`, `fk_pose_topic`, ...); the values above are the
@@ -115,6 +116,8 @@ the parameters it declares.
 | `marker_max_tf_age_s` | task nodes | detections older than this are discarded (0.5) |
 | `marker_lock_samples` | task nodes | detections averaged to acquire a lock (5) |
 | `marker_lock_mode` | executor | `once` (measure once per sequence, default) or `live` (every waypoint, debug only) |
+| `teach_mode_controller` | executor | controller deactivated by `/set_teach_mode` for hand-guiding; empty (default) = no teach mode. Only `fr3_real` sets it |
+| `controller_manager` | executor | controller manager namespace for teach mode (`/controller_manager`) |
 
 Current profiles:
 
@@ -200,6 +203,22 @@ reused for every waypoint of the sequence (`marker_lock.py`):
 The spread between the averaged samples is logged as a quality index. `check_saved_deltas.py`
 (plain script) checks that consecutive marker-relative poses moved as much as the arm really did.
 
+### Teach mode (hand-guiding)
+
+To teach by moving the arm by hand, the trajectory controller has to be off (on the Franka it
+blocks hand-guiding). `/set_teach_mode` does that switch for robots whose profile sets
+`teach_mode_controller` (only `fr3_real`):
+
+```bash
+ros2 service call /set_teach_mode std_srvs/srv/SetBool "{data: true}"    # controller inactive: guide the arm
+ros2 service call /set_teach_mode std_srvs/srv/SetBool "{data: false}"   # controller active again
+```
+
+It reads the controller's real state first (asking for the current mode is a no-op), uses a
+STRICT `SwitchController` like `ros2 control set_controller_state`, and is refused while a
+sequence is running. `/execute_saved_tasks` is refused while teach mode is on. The state is
+latched on `/teach_mode` (`std_msgs/Bool`, transient local). Logic in `teach_mode.py`.
+
 ## Grippers
 
 ```bash
@@ -269,15 +288,15 @@ generic_arm_controller/
 ├── generic_arm_controller/
 │   ├── ik_trajectory_node.py, ik_safety.py, urdf_loader.py, fk_node.py
 │   ├── gripper_manager.py                         (executable: gripper_node)
-│   ├── task_saving_node_complete.py, task_executor_node_complete.py, marker_lock.py
+│   ├── task_saving_node_complete.py, task_executor_node_complete.py, marker_lock.py, teach_mode.py
 │   ├── capture_hand_eye.py, evaluate_hand_eye.py, install_hand_eye.py, hand_eye/
 │   └── validate_pipeline.py, check_saved_deltas.py
-└── test/  test_ik_safety.py, test_hand_eye.py + ament linters
+└── test/  test_ik_safety.py, test_hand_eye.py, test_teach_mode.py + ament linters
 ```
 
 ```bash
 colcon test --packages-select generic_arm_controller && colcon test-result --verbose
-python3 -m pytest test/test_ik_safety.py test/test_hand_eye.py
+python3 -m pytest test/test_ik_safety.py test/test_hand_eye.py test/test_teach_mode.py
 ```
 
 ## Troubleshooting

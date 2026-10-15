@@ -47,6 +47,12 @@
     # joint_trajectory_controller è avviato dal bring-up sul PC real-time
     # (franka_ros2 v0.1.8, run_real.sh) - qui ci si limita a collegarsi.
     action_server_name: "/joint_trajectory_controller/follow_joint_trajectory"
+    # Teach mode (/set_teach_mode in task_executor_node_complete): this controller is
+    # deactivated so the arm can be guided by hand, as with
+    # `ros2 control set_controller_state joint_trajectory_controller inactive`.
+    # Only this profile sets it: in the Gazebo FR3 the effort controller would let the
+    # arm fall, and UR freedrive works differently.
+    teach_mode_controller: "joint_trajectory_controller"
     pose_topic:         "/target_cartesian_pose"
     joint_states_topic: "/joint_states"
     ik_result_topic:    "/ik_action_result"

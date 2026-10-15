@@ -1,8 +1,10 @@
 import rclpy
 from rclpy.node import Node
 from geometry_msgs.msg import PoseStamped
-from std_srvs.srv import Trigger
+from std_srvs.srv import SetBool, Trigger
 from std_srvs.srv._trigger import Trigger_Response
+from builtin_interfaces.msg import Duration
+from controller_manager_msgs.srv import ListControllers, SwitchController
 
 import json
 import os
@@ -24,6 +26,7 @@ from tf2_geometry_msgs import do_transform_pose_stamped
 
 from generic_arm_interfaces.srv import GripperCommand as GripperSrv
 
+from generic_arm_controller import teach_mode
 from generic_arm_controller.marker_lock import MarkerLocker
 
 
@@ -134,6 +137,44 @@ class TaskExecutorNode(Node):
         self.gripper_client = self.create_client(
             GripperSrv,
             '/gripper/command',
+            callback_group=self.reentrant_callback_group
+        )
+
+        # ------------------------------------------------------------------
+        # Teach mode (hand-guiding): /set_teach_mode deactivates the profile's
+        # teach_mode_controller so the arm can be guided by hand, and
+        # reactivates it before replaying. The state is latched on /teach_mode
+        # and execute_saved_tasks refuses to run while it is on. An empty
+        # teach_mode_controller (default) means the robot has no teach mode.
+        # Pure logic in teach_mode.py.
+        # ------------------------------------------------------------------
+        self.declare_parameter('teach_mode_controller', '')
+        self.declare_parameter('controller_manager', '/controller_manager')
+        self.teach_mode_controller = str(self.get_parameter('teach_mode_controller').value)
+        controller_manager = str(self.get_parameter('controller_manager').value).rstrip('/')
+        self._list_controllers_client = self.create_client(
+            ListControllers, f'{controller_manager}/list_controllers',
+            callback_group=self.reentrant_callback_group
+        )
+        self._switch_controller_client = self.create_client(
+            SwitchController, f'{controller_manager}/switch_controller',
+            callback_group=self.reentrant_callback_group
+        )
+        self.controller_manager_timeout = 5.0
+        self._teach_mode_active = False
+        self._teach_mode_pub = self.create_publisher(
+            Bool, 'teach_mode',
+            QoSProfile(reliability=ReliabilityPolicy.RELIABLE,
+                       history=HistoryPolicy.KEEP_LAST, depth=1,
+                       durability=DurabilityPolicy.TRANSIENT_LOCAL)
+        )
+        self.teach_mode_service = self.create_service(
+            SetBool, 'set_teach_mode', self.set_teach_mode_callback,
+            callback_group=self.reentrant_callback_group
+        )
+        # The initial state is published once the controller manager answers.
+        self._teach_mode_init_timer = self.create_timer(
+            2.0, self._init_teach_mode_state,
             callback_group=self.reentrant_callback_group
         )
 
@@ -464,9 +505,102 @@ class TaskExecutorNode(Node):
             self.get_logger().warn(response.message)
             return response
         try:
+            if self._teach_mode_active:
+                response.success = False
+                response.message = ("Teach mode is ON: turn it off (/set_teach_mode false) "
+                                    "before executing the sequence.")
+                self.get_logger().warn(response.message)
+                return response
             return self._execute_saved_tasks(response)
         finally:
             self._exec_lock.release()
+
+    # ------------------------------------------------------------------
+    # Teach mode (hand-guiding)
+    # ------------------------------------------------------------------
+
+    def set_teach_mode_callback(self, request, response):
+        enable = bool(request.data)
+        # Holding the execution lock during the switch also keeps a sequence
+        # from starting halfway through it.
+        locked = self._exec_lock.acquire(blocking=False)
+        try:
+            error = teach_mode.check_request(self.teach_mode_controller, executing=not locked)
+            if error is None:
+                error = self._switch_teach_mode(enable)
+        finally:
+            if locked:
+                self._exec_lock.release()
+        response.success = error is None
+        response.message = error or teach_mode.describe(enable)
+        if error:
+            self.get_logger().warn(f"Teach mode request refused: {error}")
+        else:
+            self.get_logger().info(response.message)
+        return response
+
+    def _switch_teach_mode(self, enable):
+        """Switch the controller for teach mode `enable`; return an error or None."""
+        state, error = self._read_teach_controller_state()
+        if error:
+            return error
+        activate, deactivate, error = teach_mode.plan_switch(
+            enable, self.teach_mode_controller, state)
+        if error:
+            return error
+        if activate or deactivate:
+            req = SwitchController.Request()
+            req.activate_controllers = activate
+            req.deactivate_controllers = deactivate
+            req.strictness = SwitchController.Request.STRICT
+            req.activate_asap = True
+            req.timeout = Duration(sec=2)
+            res = self._call_service(
+                self._switch_controller_client, req, self.controller_manager_timeout)
+            if res is None:
+                return "The controller manager did not answer the switch request."
+            if not res.ok:
+                return (f"The controller manager refused to switch "
+                        f"'{self.teach_mode_controller}'.")
+        self._teach_mode_init_timer.cancel()
+        self._set_teach_mode_state(enable)
+        return None
+
+    def _read_teach_controller_state(self):
+        """Return (state, error) of teach_mode_controller; state None if not loaded."""
+        res = self._call_service(
+            self._list_controllers_client, ListControllers.Request(),
+            self.controller_manager_timeout)
+        if res is None:
+            return None, "The controller manager is not reachable (list_controllers)."
+        return teach_mode.controller_state(res.controller, self.teach_mode_controller), None
+
+    def _init_teach_mode_state(self):
+        """Publish the initial teach mode state; retried until it is known."""
+        if self.teach_mode_controller:
+            state, error = self._read_teach_controller_state()
+            if error or state is None:
+                return  # controller manager or controller not up yet
+            self._set_teach_mode_state(state == teach_mode.INACTIVE)
+        else:
+            self._set_teach_mode_state(False)
+        self._teach_mode_init_timer.cancel()
+
+    def _set_teach_mode_state(self, active):
+        self._teach_mode_active = active
+        self._teach_mode_pub.publish(Bool(data=active))
+
+    def _call_service(self, client, request, timeout):
+        """Call a service from a reentrant callback; None if unavailable or on timeout."""
+        if not client.service_is_ready():
+            return None
+        future = client.call_async(request)
+        start = time.time()
+        while not future.done():
+            time.sleep(0.01)
+            if time.time() - start > timeout:
+                return None
+        return future.result()
 
     def _execute_saved_tasks(self, response: Trigger_Response):
         self.get_logger().info("Avvio sequenza task.")

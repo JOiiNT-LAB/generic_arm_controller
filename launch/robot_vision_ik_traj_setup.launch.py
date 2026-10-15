@@ -92,6 +92,12 @@ def generate_launch_description():
         default_value='true',
         description='Enable LLM app (richiede launch_pal installato)'
     )
+    enable_gestures_arg = DeclareLaunchArgument(
+        'enable_gestures',
+        default_value='false',
+        description=('Enable hand gesture control (hand_gestures: webcam + MediaPipe); '
+                     'its commands go through llm_app, so it needs enable_llm')
+    )
     robot_arg = DeclareLaunchArgument(
         'robot',
         default_value='ur10e',
@@ -269,6 +275,22 @@ def generate_launch_description():
     )
 
     # -----------------------------------------------------------------------
+    # Hand gestures (optional): camera -> gesture detector -> commander, which
+    # sends its commands to the llm_app skill, so it starts with the same delay.
+    # -----------------------------------------------------------------------
+    hand_gestures_delayed = TimerAction(
+        period=3.0,
+        actions=[IncludeLaunchDescription(
+            PathJoinSubstitution([
+                FindPackageShare('hand_gestures'),
+                'launch',
+                'hand_gestures.launch.py',
+            ])
+        )],
+        condition=IfCondition(LaunchConfiguration('enable_gestures')),
+    )
+
+    # -----------------------------------------------------------------------
     # Ordine di avvio dichiarativo
     # (ROS 2 non garantisce ordine tra Node(), ma il TimerAction garantisce
     # che llm_app parta dopo che i nodi sopra hanno avuto tempo di inizializzarsi)
@@ -278,6 +300,7 @@ def generate_launch_description():
         enable_realsense_arg,
         enable_qb_arg,
         enable_llm_arg,
+        enable_gestures_arg,
         robot_arg,
         marker_id_arg,
         marker_size_arg,
@@ -303,6 +326,7 @@ def generate_launch_description():
         aruco_detect_node,
         # 6. llm_app — ULTIMO, con ritardo esplicito
         llm_app_delayed,
+        hand_gestures_delayed,
     ])
 
 
