@@ -11,6 +11,10 @@ import json
 import os
 import tempfile
 
+# The one sequence file: written by task_saving_node_complete, replayed by
+# task_executor_node_complete, checked by check_saved_deltas.
+DEFAULT_PATH = os.path.expanduser('~/ros2_ws/src/task_result/robot_poses_ws.json')
+
 
 def load(path):
     """

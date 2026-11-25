@@ -203,8 +203,9 @@ reused for every waypoint of the sequence (`marker_lock.py`):
   one at its first marker-relative waypoint (`aruco_marker_locked_run`), since the object may
   have moved between runs.
 
-The spread between the averaged samples is logged as a quality index. `check_saved_deltas.py`
-(plain script) checks that consecutive marker-relative poses moved as much as the arm really did.
+The spread between the averaged samples is logged as a quality index.
+`ros2 run generic_arm_controller check_saved_deltas [file]` checks that consecutive
+marker-relative poses moved as much as the arm really did.
 
 ### Teach mode (hand-guiding)
 
@@ -292,9 +293,10 @@ generic_arm_controller/
 │   ├── ik_trajectory_node.py, ik_safety.py, urdf_loader.py, fk_node.py
 │   ├── gripper_manager.py                         (executable: gripper_node)
 │   ├── task_saving_node_complete.py, task_executor_node_complete.py, marker_lock.py, teach_mode.py
+│   ├── pose_store.py                              (the saved sequence file, one path for all)
 │   ├── capture_hand_eye.py, evaluate_hand_eye.py, install_hand_eye.py, hand_eye/
 │   └── validate_pipeline.py, check_saved_deltas.py
-└── test/  test_ik_safety.py, test_hand_eye.py, test_teach_mode.py + ament linters
+└── test/  test_ik_safety.py, test_hand_eye.py, test_teach_mode.py, test_pose_store.py + ament linters
 ```
 
 ```bash

@@ -2,9 +2,8 @@ import rclpy
 from rclpy.node import Node
 import os
 import datetime
-import shutil  # <-- Aggiunto per gestire i backup dei file completi
+import shutil
 
-import tf2_ros
 from tf2_ros import TransformException
 from tf2_ros.buffer import Buffer
 from tf2_ros.transform_listener import TransformListener
@@ -71,11 +70,10 @@ class PoseSaverNode(Node):
         # non si aggiorna e il timeout non puo' mai essere soddisfatto.
         self.tf_listener = TransformListener(self.tf_buffer, self, spin_thread=True)
 
-        # Manteniamo la tua cartella e il tuo file originale (L'esecutore leggerà sempre questo!)
-        workspace_dir    = os.path.expanduser('~/ros2_ws/src')
-        self.task_result_dir  = os.path.join(workspace_dir, 'task_result')
+        # Same file the executor replays (pose_store.DEFAULT_PATH); backups go next to it.
+        self.json_file_path = pose_store.DEFAULT_PATH
+        self.task_result_dir = os.path.dirname(self.json_file_path)
         os.makedirs(self.task_result_dir, exist_ok=True)
-        self.json_file_path = os.path.join(self.task_result_dir, 'robot_poses_ws.json')
         self.get_logger().info(f"Saving to: {self.json_file_path}")
 
         # Carica le pose accumulate in precedenza se il file esiste già
@@ -105,7 +103,7 @@ class PoseSaverNode(Node):
         # Frame la cui posa va agganciata invece che riletta a ogni salvataggio.
         # Indicizzato per nome: piu' marker (es. "marker_26", "marker_28") hanno
         # ognuno il proprio lock indipendente, senza logica aggiuntiva.
-        self._trackable_frames      = ("aruco_marker",)
+        self._trackable_frames = ("aruco_marker",)
         self._static_tf_broadcaster = StaticTransformBroadcaster(self)
         self._locker = MarkerLocker(
             node=self,
@@ -137,10 +135,10 @@ class PoseSaverNode(Node):
         per capire a occhio dove il sistema crede che sia il marker) ed e'
         utilizzabile direttamente come source_frame di una lookup."""
         out = TransformStamped()
-        out.header.stamp    = self.get_clock().now().to_msg()
+        out.header.stamp = self.get_clock().now().to_msg()
         out.header.frame_id = self.base_frame
-        out.child_frame_id  = self._locked_frame_name(frame)
-        out.transform       = ts.transform
+        out.child_frame_id = self._locked_frame_name(frame)
+        out.transform = ts.transform
         self._static_tf_broadcaster.sendTransform(out)
 
     def _try_lock(self, frame: str):
@@ -203,7 +201,7 @@ class PoseSaverNode(Node):
         return response
 
     # ------------------------------------------------------------------
-    # I/O file JSON (Invariati per garantire l'accumulo nello stesso file)
+    # I/O file JSON
     # ------------------------------------------------------------------
 
     # The file is read again at every save and clear (pose_store), so edits made while the
@@ -234,16 +232,16 @@ class PoseSaverNode(Node):
     def save_pose_callback(self, request: SavePose.Request, response: SavePose.Response):
         target_frame = self.end_effector_frame
         source_frame = ""
-        pose_type    = ""
+        pose_type = ""
 
         # Two modes: 0 = robot base, 1 = marker. There is no camera-relative mode: the
         # camera is mounted on the arm, so the end effector is always at the same offset
         # from it and such a pose would replay to wherever the arm already is.
         if request.save_mode == 0:
-            pose_type    = "absolute"
+            pose_type = "absolute"
             source_frame = self.base_frame
         elif request.save_mode == 1:
-            pose_type    = "relative"
+            pose_type = "relative"
             source_frame = request.reference_frame or "aruco_marker"
         else:
             response.success = False
@@ -335,10 +333,10 @@ class PoseSaverNode(Node):
     def save_gripper_action_callback(
         self, request: GripperSrv.Request, response: GripperSrv.Response
     ):
-        command      = request.command.strip().lower()
+        command = request.command.strip().lower()
         gripper_type = request.gripper_type.strip().lower() \
-                       if request.gripper_type else "auto"
-        position     = float(request.position)
+            if request.gripper_type else "auto"
+        position = float(request.position)
 
         valid_commands = ("open", "close", "move")
         if command not in valid_commands:
@@ -357,7 +355,7 @@ class PoseSaverNode(Node):
         gripper_data = {
             "task_type":    "gripper",
             "command":      command,
-            "position":     position,   
+            "position":     position,
             "gripper_type": gripper_type
         }
 
@@ -397,7 +395,7 @@ class PoseSaverNode(Node):
                 timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
                 backup_filename = f"backup_poses_{timestamp}.json"
                 backup_path = os.path.join(self.task_result_dir, backup_filename)
-                
+
                 # Copia il file pieno corrente nel file di backup storico
                 if os.path.exists(self.json_file_path):
                     shutil.copyfile(self.json_file_path, backup_path)
@@ -411,9 +409,10 @@ class PoseSaverNode(Node):
             pose_store.write(self.json_file_path, [])
 
             response.success = True
-            response.message = f"{msg_backup}Tutte le voci correnti sono state azzerate in robot_poses_ws.json."
+            response.message = (f"{msg_backup}Tutte le voci correnti sono state azzerate "
+                                "in robot_poses_ws.json.")
             self.get_logger().info(response.message)
-            
+
         except Exception as e:
             response.success = False
             response.message = f"Failed to clear/backup: {e}"

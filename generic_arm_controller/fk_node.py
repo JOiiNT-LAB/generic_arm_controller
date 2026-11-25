@@ -19,7 +19,8 @@ class FKNode(Node):
     xacro_relative_path : str — Path to the xacro file, relative to urdf_package's share dir
     xacro_args          : list — xacro arguments as "name:=value" strings
     end_effector_frame : str  — Pinocchio frame name for the end-effector (default: 'tool0')
-    base_frame         : str  — Frame ID used in the published PoseStamped header (default: 'base_link')
+    base_frame         : str  — Frame ID used in the published PoseStamped header
+                                 (default: 'base_link')
     joint_states_topic : str  — Input JointState topic (default: '/joint_states')
     fk_pose_topic      : str  — Output PoseStamped topic (default: '/fk_pose')
     """
@@ -46,14 +47,14 @@ class FKNode(Node):
         # ------------------------------------------------------------------ #
         # Read parameters
         # ------------------------------------------------------------------ #
-        urdf_package        = self.get_parameter('urdf_package').value
-        robot_type          = self.get_parameter('robot_type').value
+        urdf_package = self.get_parameter('urdf_package').value
+        robot_type = self.get_parameter('robot_type').value
         xacro_relative_path = self.get_parameter('xacro_relative_path').value
-        xacro_args          = list(self.get_parameter('xacro_args').value)
+        xacro_args = list(self.get_parameter('xacro_args').value)
         self.ee_frame_name = self.get_parameter('end_effector_frame').value
-        self.base_frame    = self.get_parameter('base_frame').value
+        self.base_frame = self.get_parameter('base_frame').value
         joint_states_topic = self.get_parameter('joint_states_topic').value
-        fk_pose_topic      = self.get_parameter('fk_pose_topic').value
+        fk_pose_topic = self.get_parameter('fk_pose_topic').value
 
         self.get_logger().info(
             f'Starting FK node | robot: {robot_type} | package: {urdf_package} | '
@@ -72,7 +73,7 @@ class FKNode(Node):
         )
 
         self.model = pin.buildModelFromUrdf(urdf_path)
-        self.data  = self.model.createData()
+        self.data = self.model.createData()
         self.get_logger().info(f'Pinocchio model loaded: {self.model.nq} DOF')
 
         # ------------------------------------------------------------------ #
@@ -122,7 +123,7 @@ class FKNode(Node):
 
         for joint_name in self.joint_names:
             if joint_name in name_to_pos:
-                jid   = self.model.getJointId(joint_name)
+                jid = self.model.getJointId(joint_name)
                 q_idx = self.model.joints[jid].idx_q
                 if self.model.joints[jid].nq == 1:
                     self.q[q_idx] = name_to_pos[joint_name]
@@ -132,16 +133,16 @@ class FKNode(Node):
         pin.updateFramePlacements(self.model, self.data)
 
         try:
-            ee_pose    = self.data.oMf[self.ee_frame_id]
-            pos        = ee_pose.translation
+            ee_pose = self.data.oMf[self.ee_frame_id]
+            pos = ee_pose.translation
             quaternion = pin.Quaternion(ee_pose.rotation).coeffs()  # [x, y, z, w]
 
-            pose_msg                    = PoseStamped()
-            pose_msg.header.stamp       = self.get_clock().now().to_msg()
-            pose_msg.header.frame_id    = self.base_frame
-            pose_msg.pose.position.x    = float(pos[0])
-            pose_msg.pose.position.y    = float(pos[1])
-            pose_msg.pose.position.z    = float(pos[2])
+            pose_msg = PoseStamped()
+            pose_msg.header.stamp = self.get_clock().now().to_msg()
+            pose_msg.header.frame_id = self.base_frame
+            pose_msg.pose.position.x = float(pos[0])
+            pose_msg.pose.position.y = float(pos[1])
+            pose_msg.pose.position.z = float(pos[2])
             pose_msg.pose.orientation.x = float(quaternion[0])
             pose_msg.pose.orientation.y = float(quaternion[1])
             pose_msg.pose.orientation.z = float(quaternion[2])

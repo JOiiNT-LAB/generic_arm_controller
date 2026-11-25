@@ -33,23 +33,23 @@ except ImportError:
     FRANKA_MSGS_AVAILABLE = False
 
 
-RG2_MAX_WIDTH_M  = 0.085
+RG2_MAX_WIDTH_M = 0.085
 SOFTHAND_MIN_POS = 0
 SOFTHAND_MAX_POS = 3500
 
 # Kinematic limits Robotiq 2F-85 in Gazebo/ROS 2 Control
-ROBOTIQ_MIN_POS  = 0.0  # Open
-ROBOTIQ_MAX_POS  = 0.8  # Fully Closed
+ROBOTIQ_MIN_POS = 0.0  # Open
+ROBOTIQ_MAX_POS = 0.8  # Fully Closed
 
 # Il command_interface "position" di ign_ros2_control (Fortress) non applica alcuna
 # coppia per questo giunto: la conversione interna position->velocity risulta un
 # no-op nella fisica, mentre comandare la velocity interface funziona correttamente.
 # Guidiamo quindi il giunto in Gazebo con un ciclo di controllo in velocità.
-ROBOTIQ_JOINT_NAME       = 'robotiq_85_left_knuckle_joint'
-ROBOTIQ_COMMANDS_TOPIC   = '/robotiq_gripper_controller/commands'
-ROBOTIQ_MOVE_VELOCITY    = 0.4   # rad/s (< limite giunto 0.5 rad/s)
-ROBOTIQ_POS_TOLERANCE    = 0.01  # rad
-ROBOTIQ_MOVE_TIMEOUT     = 5.0   # s
+ROBOTIQ_JOINT_NAME = 'robotiq_85_left_knuckle_joint'
+ROBOTIQ_COMMANDS_TOPIC = '/robotiq_gripper_controller/commands'
+ROBOTIQ_MOVE_VELOCITY = 0.4   # rad/s (< limite giunto 0.5 rad/s)
+ROBOTIQ_POS_TOLERANCE = 0.01  # rad
+ROBOTIQ_MOVE_TIMEOUT = 5.0   # s
 
 # Franka Hand: apertura pinza in metri (a differenza del Robotiq, qui la convenzione
 # non è invertita: 0.0 = chiuso, larghezza massima = aperto)
@@ -157,7 +157,8 @@ class GripperManager(Node):
                 callback_group=self.cb_group,
             )
             self.get_logger().info(
-                f'Franka Hand native Move action client initialized on {self.franka_hand_namespace}.'
+                'Franka Hand native Move action client initialized on '
+                f'{self.franka_hand_namespace}.'
             )
 
         # --- ROS Service ---
@@ -284,15 +285,15 @@ class GripperManager(Node):
         )
 
         req = self.softhand_client.srv_type.Request()
-        req.max_repeats      = 1
-        req.set_commands     = True
+        req.max_repeats = 1
+        req.set_commands = True
         req.position_command = softhand_cmd
 
         future = self.softhand_client.call_async(req)
 
         import time
         timeout = 5.0
-        start   = time.time()
+        start = time.time()
         while not future.done():
             time.sleep(0.01)
             if time.time() - start > timeout:
@@ -403,7 +404,8 @@ class GripperManager(Node):
 
         self.get_logger().info('[FrankaHand] Movement completed successfully.')
         response.success = True
-        response.message = f'FrankaHand set to {franka_width:.3f} m (Logical input: {position:.2f})'
+        response.message = (f'FrankaHand set to {franka_width:.3f} m '
+                            f'(Logical input: {position:.2f})')
         return response
 
     # =========================================================

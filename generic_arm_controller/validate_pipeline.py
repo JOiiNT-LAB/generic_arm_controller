@@ -64,11 +64,13 @@ class PipelineValidator(Node):
         self.create_subscription(PoseStamped, '/fk_pose', self._on_fk, 10, callback_group=cb)
 
         self.save_pose_client = self.create_client(SavePose, '/save_pose', callback_group=cb)
-        self.gripper_client = self.create_client(GripperCommand, '/gripper/command', callback_group=cb)
+        self.gripper_client = self.create_client(
+            GripperCommand, '/gripper/command', callback_group=cb)
         self.save_gripper_client = self.create_client(
             GripperCommand, '/save_gripper_action', callback_group=cb)
         self.clear_client = self.create_client(Trigger, '/clear_saved_poses', callback_group=cb)
-        self.execute_client = self.create_client(Trigger, '/execute_saved_tasks', callback_group=cb)
+        self.execute_client = self.create_client(
+            Trigger, '/execute_saved_tasks', callback_group=cb)
 
     def _on_fk(self, msg):
         self._last_fk = msg
@@ -118,11 +120,11 @@ class PipelineValidator(Node):
 def parse_args():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--base-frame', default='base_link',
-                         help='Reference frame for the poses (default: base_link, i.e. UR10e)')
+                        help='Reference frame for the poses (default: base_link, i.e. UR10e)')
     parser.add_argument('--pose1', default='0.70,0.0,0.80',
-                         help='First pose as "x,y,z" (default: UR10e "home"-ish pose)')
+                        help='First pose as "x,y,z" (default: UR10e "home"-ish pose)')
     parser.add_argument('--pose2', default='0.70,0.0,0.40',
-                         help='Second pose as "x,y,z" (default: UR10e lower pose)')
+                        help='Second pose as "x,y,z" (default: UR10e lower pose)')
     args, _ros_args = parser.parse_known_args(remove_ros_args(sys.argv)[1:])
     return args
 
@@ -163,34 +165,38 @@ def main():
         x, y, z = pose1
         node.send_pose(x, y, z)
         time.sleep(SETTLE_TIME)
-        res = node.call(node.save_pose_client,
-                         SavePose.Request(save_mode=0, task_name='validate_pose1', reference_frame=''))
-        result.record("/save_pose pose1", bool(res and res.success), res.message if res else "timeout")
+        res = node.call(
+            node.save_pose_client,
+            SavePose.Request(save_mode=0, task_name='validate_pose1', reference_frame=''))
+        result.record("/save_pose pose1", bool(res and res.success),
+                      res.message if res else "timeout")
 
         res = node.call(node.gripper_client, GripperCommand.Request(command='close'))
         result.record("/gripper/command close", bool(res and res.success),
-                       res.message if res else "timeout")
+                      res.message if res else "timeout")
 
         res = node.call(node.save_gripper_client, GripperCommand.Request(command='close'))
         result.record("/save_gripper_action close", bool(res and res.success),
-                       res.message if res else "timeout")
+                      res.message if res else "timeout")
 
         x, y, z = pose2
         node.send_pose(x, y, z)
         time.sleep(SETTLE_TIME)
-        res = node.call(node.save_pose_client,
-                         SavePose.Request(save_mode=0, task_name='validate_pose2', reference_frame=''))
-        result.record("/save_pose pose2", bool(res and res.success), res.message if res else "timeout")
+        res = node.call(
+            node.save_pose_client,
+            SavePose.Request(save_mode=0, task_name='validate_pose2', reference_frame=''))
+        result.record("/save_pose pose2", bool(res and res.success),
+                      res.message if res else "timeout")
 
         print("\n=== Step 3: replay the taught sequence ===")
         res = node.call(node.execute_client, Trigger.Request(), timeout=60.0)
         result.record("/execute_saved_tasks replay", bool(res and res.success),
-                       res.message if res else "timeout")
+                      res.message if res else "timeout")
 
         print("\n=== Step 4: cleanup ===")
         res = node.call(node.clear_client, Trigger.Request())
         result.record("/clear_saved_poses cleanup", bool(res and res.success),
-                       res.message if res else "timeout")
+                      res.message if res else "timeout")
     else:
         print("Aborting: launch 'arm_gz_bringup bringup.launch.py' first.")
 

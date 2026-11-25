@@ -47,7 +47,7 @@ def load_calibration_from_yaml(context):
             calib_data = yaml.safe_load(f)
 
         trans = calib_data['translation']
-        rot   = calib_data['rotation']
+        rot = calib_data['rotation']
 
         static_tf_args = [
             str(trans['x']), str(trans['y']), str(trans['z']),
@@ -227,7 +227,7 @@ def generate_launch_description():
         ]),
         condition=IfCondition(LaunchConfiguration('enable_qb')),
     )
-    
+
     # Lo spawn dei controller ros2_control (incluso il gripper) è responsabilità del
     # bringup Gazebo per-robot (arm_gz_bringup/launch/<robot>.launch.py), non di questo
     # launch: qui gira solo la logica di controllo (IK/FK/gripper/task), indipendente
@@ -241,9 +241,10 @@ def generate_launch_description():
         parameters=[{
             'marker_size': LaunchConfiguration('marker_size'),
             'marker_id': LaunchConfiguration('marker_id'),
-            'camera_frame': 'camera_color_optical_frame', # frame ottico della telecamera
+            'camera_frame': 'camera_color_optical_frame',  # frame ottico della telecamera
             'marker_frame': 'aruco_marker',
-            'reference_frame': 'camera_color_optical_frame', # allinea il riferimento al frame ottico
+            # allinea il riferimento al frame ottico
+            'reference_frame': 'camera_color_optical_frame',
         }],
         remappings=[
             ('/image', LaunchConfiguration('aruco_image_topic')),
@@ -328,26 +329,3 @@ def generate_launch_description():
         llm_app_delayed,
         hand_gestures_delayed,
     ])
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

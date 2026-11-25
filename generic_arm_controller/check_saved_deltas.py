@@ -12,19 +12,18 @@ l'aggancio non sta funzionando (era il caso del vecchio meccanismo di freeze,
 che si riaggiornava a 5 Hz: 15 cm di discesa reale venivano registrati come 3.4).
 
 Uso:
-    python3 check_saved_deltas.py [percorso_json]
+    ros2 run generic_arm_controller check_saved_deltas [percorso_json]
 """
 
 import json
 import math
-import os
 import sys
+
+from generic_arm_controller import pose_store
 
 
 def main():
-    path = sys.argv[1] if len(sys.argv) > 1 else os.path.expanduser(
-        '~/ros2_ws/src/task_result/robot_poses_ws.json'
-    )
+    path = sys.argv[1] if len(sys.argv) > 1 else pose_store.DEFAULT_PATH
     with open(path) as f:
         entries = json.load(f)
 

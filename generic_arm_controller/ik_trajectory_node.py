@@ -25,7 +25,8 @@ class IKTrajectoryNode(Node):
     Parameters
     ----------
     urdf_package        : str   — ROS package containing the URDF/xacro (default: 'ur_description')
-    robot_type          : str   — Robot type passed to xacro, e.g. 'ur10e', 'ur5e' (default: 'ur10e')
+    robot_type          : str   — Robot type passed to xacro, e.g. 'ur10e', 'ur5e'
+                                  (default: 'ur10e')
     xacro_relative_path : str   — Path to the xacro file, relative to urdf_package's share dir
     xacro_args          : list  — xacro arguments as "name:=value" strings
     end_effector_frame  : str   — Pinocchio frame name for the end-effector (default: 'tool0')
@@ -90,22 +91,22 @@ class IKTrajectoryNode(Node):
         # ------------------------------------------------------------------ #
         # Read parameters
         # ------------------------------------------------------------------ #
-        urdf_package         = self.get_parameter('urdf_package').value
-        robot_type           = self.get_parameter('robot_type').value
-        xacro_relative_path  = self.get_parameter('xacro_relative_path').value
-        xacro_args           = list(self.get_parameter('xacro_args').value)
+        urdf_package = self.get_parameter('urdf_package').value
+        robot_type = self.get_parameter('robot_type').value
+        xacro_relative_path = self.get_parameter('xacro_relative_path').value
+        xacro_args = list(self.get_parameter('xacro_args').value)
         self.ee_frame_name = self.get_parameter('end_effector_frame').value
-        self.joint_names   = list(self.get_parameter('joint_names').value)
+        self.joint_names = list(self.get_parameter('joint_names').value)
         action_server_name = self.get_parameter('action_server_name').value
-        pose_topic         = self.get_parameter('pose_topic').value
+        pose_topic = self.get_parameter('pose_topic').value
         joint_states_topic = self.get_parameter('joint_states_topic').value
-        ik_result_topic    = self.get_parameter('ik_result_topic').value
+        ik_result_topic = self.get_parameter('ik_result_topic').value
         ik_result_reason_topic = self.get_parameter('ik_result_reason_topic').value
 
-        self.tolerance           = self.get_parameter('ik_tolerance').value
-        self.max_iter            = self.get_parameter('ik_max_iter').value
-        self.dt                  = self.get_parameter('ik_dt').value
-        self.damping             = self.get_parameter('ik_damping').value
+        self.tolerance = self.get_parameter('ik_tolerance').value
+        self.max_iter = self.get_parameter('ik_max_iter').value
+        self.dt = self.get_parameter('ik_dt').value
+        self.damping = self.get_parameter('ik_damping').value
         self.trajectory_duration = self.get_parameter('trajectory_duration').value
         self.base_frame = self.get_parameter('base_frame').value
         self.max_joint_speed = self.get_parameter('max_joint_speed').value
@@ -141,7 +142,7 @@ class IKTrajectoryNode(Node):
         # Pinocchio model
         # ------------------------------------------------------------------ #
         self.model = pin.buildModelFromUrdf(urdf_path)
-        self.data  = self.model.createData()
+        self.data = self.model.createData()
         self.get_logger().info(f'Pinocchio model loaded: {self.model.nq} DOF')
 
         self._validate_joints()
@@ -159,7 +160,7 @@ class IKTrajectoryNode(Node):
         # ------------------------------------------------------------------ #
         # State
         # ------------------------------------------------------------------ #
-        self.current_q          = pin.neutral(self.model)
+        self.current_q = pin.neutral(self.model)
         self.initial_q_received = False
 
         # ------------------------------------------------------------------ #
@@ -205,7 +206,7 @@ class IKTrajectoryNode(Node):
     def _get_joint_positions(self, q: np.ndarray):
         positions = []
         for name in self.joint_names:
-            jid   = self.model.getJointId(name)
+            jid = self.model.getJointId(name)
             q_idx = self.model.joints[jid].idx_q
             if q_idx == -1:
                 self.get_logger().error(f'Invalid q index for joint {name}.')
@@ -222,12 +223,12 @@ class IKTrajectoryNode(Node):
             self.get_logger().info('Initial joint states received.')
             self.initial_q_received = True
 
-        pos_map   = dict(zip(msg.name, msg.position))
+        pos_map = dict(zip(msg.name, msg.position))
         updated_q = pin.neutral(self.model)
 
         for name in self.joint_names:
             if name in pos_map:
-                jid   = self.model.getJointId(name)
+                jid = self.model.getJointId(name)
                 q_idx = self.model.joints[jid].idx_q
                 if q_idx != -1 and self.model.joints[jid].nq > 0:
                     updated_q[q_idx] = pos_map[name]
@@ -239,10 +240,10 @@ class IKTrajectoryNode(Node):
         # Reason published BEFORE the Bool: task_executor_node_complete reads
         # ik_action_reason at the exact moment it exits the wait-loop on
         # ik_action_result, so it must have already arrived.
-        reason_msg      = String()
+        reason_msg = String()
         reason_msg.data = reason
         self.ik_reason_publisher.publish(reason_msg)
-        out      = Bool()
+        out = Bool()
         out.data = False
         self.ik_result_publisher.publish(out)
 
@@ -277,24 +278,24 @@ class IKTrajectoryNode(Node):
             self._publish_failure('Zero-norm quaternion — ignoring pose.')
             return
 
-        rotation   = pin.Quaternion(
+        rotation = pin.Quaternion(
             p.orientation.w / q_norm,
             p.orientation.x / q_norm,
             p.orientation.y / q_norm,
             p.orientation.z / q_norm,
         ).matrix()
         translation = np.array([p.position.x, p.position.y, p.position.z])
-        target_se3  = pin.SE3(rotation, translation)
+        target_se3 = pin.SE3(rotation, translation)
 
-        q_guess    = self.current_q.copy()
-        found      = False
+        q_guess = self.current_q.copy()
+        found = False
         error_norm = float('inf')
 
         for i in range(self.max_iter):
             pin.computeJointJacobians(self.model, self.data, q_guess)
             pin.updateFramePlacements(self.model, self.data)
 
-            error      = pin.log6(self.data.oMf[self.ee_frame_id].inverse() * target_se3).vector
+            error = pin.log6(self.data.oMf[self.ee_frame_id].inverse() * target_se3).vector
             error_norm = np.linalg.norm(error)
 
             if i % 100 == 0:
@@ -311,13 +312,14 @@ class IKTrajectoryNode(Node):
 
             try:
                 U, S, Vt = np.linalg.svd(J, full_matrices=False)
-                J_pinv   = Vt.T @ np.diag(S / (S ** 2 + self.damping)) @ U.T
+                J_pinv = Vt.T @ np.diag(S / (S ** 2 + self.damping)) @ U.T
             except np.linalg.LinAlgError as e:
                 self.get_logger().warn(f'SVD failed at iter {i}: {e}')
                 continue
 
             q_guess = pin.integrate(self.model, q_guess, self.dt * (J_pinv @ error))
-            q_guess = np.clip(q_guess, self.model.lowerPositionLimit, self.model.upperPositionLimit)
+            q_guess = np.clip(q_guess, self.model.lowerPositionLimit,
+                              self.model.upperPositionLimit)
 
         if found:
             self._send_trajectory(q_guess)
@@ -331,7 +333,7 @@ class IKTrajectoryNode(Node):
     # ---------------------------------------------------------------------- #
 
     def _send_trajectory(self, q_solution: np.ndarray):
-        current_pos  = self._get_joint_positions(self.current_q)
+        current_pos = self._get_joint_positions(self.current_q)
         solution_pos = self._get_joint_positions(q_solution)
         if current_pos is None or solution_pos is None:
             self._publish_failure('Could not resolve joint positions — trajectory not sent.')
@@ -350,19 +352,19 @@ class IKTrajectoryNode(Node):
                 f'(max_joint_speed={self.max_joint_speed} rad/s).'
             )
 
-        goal                        = FollowJointTrajectory.Goal()
+        goal = FollowJointTrajectory.Goal()
         goal.trajectory.joint_names = self.joint_names
 
-        p0                          = JointTrajectoryPoint()
-        p0.positions                = current_pos
-        p0.time_from_start.sec     = 0
+        p0 = JointTrajectoryPoint()
+        p0.positions = current_pos
+        p0.time_from_start.sec = 0
         p0.time_from_start.nanosec = 0
         goal.trajectory.points.append(p0)
 
-        dur_sec                     = int(duration)
-        p1                          = JointTrajectoryPoint()
-        p1.positions                = solution_pos
-        p1.time_from_start.sec     = dur_sec
+        dur_sec = int(duration)
+        p1 = JointTrajectoryPoint()
+        p1.positions = solution_pos
+        p1.time_from_start.sec = dur_sec
         p1.time_from_start.nanosec = int((duration - dur_sec) * 1e9)
         goal.trajectory.points.append(p1)
 
@@ -388,18 +390,18 @@ class IKTrajectoryNode(Node):
     def _get_result_callback(self, future):
         status = future.result().status
         result = future.result().result
-        msg    = Bool()
+        msg = Bool()
 
         if status == rclpy.action.client.GoalStatus.STATUS_SUCCEEDED:
             self.get_logger().info('Trajectory succeeded.')
             msg.data = True
-            reason   = ""
+            reason = ""
         else:
             reason = f'Trajectory failed — status={status}, error_code={result.error_code}'
             self.get_logger().warn(reason)
             msg.data = False
 
-        reason_msg      = String()
+        reason_msg = String()
         reason_msg.data = reason
         self.ik_reason_publisher.publish(reason_msg)
         self.ik_result_publisher.publish(msg)

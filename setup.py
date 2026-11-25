@@ -11,21 +11,27 @@ setup(
     data_files=[
         ('share/ament_index/resource_index/packages', ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
-        
-        # Inserisci TUTTI i tuoi data_files QUI, dentro una singola lista
-        (os.path.join('share', package_name, 'launch'), glob(os.path.join('launch', '*.launch.py'))),
-        (os.path.join('share', package_name, 'launch/robots'), glob(os.path.join('launch/robots', '*.launch.py'))),
-        (os.path.join('share', package_name, 'launch/grippers'), glob(os.path.join('launch/grippers', '*.launch.py'))),
-        (os.path.join('share', package_name, 'launch/sensors'), glob(os.path.join('launch/sensors', '*.launch.py'))),
-        (os.path.join('share', package_name, 'config'), glob(os.path.join('config', '*.yaml'))),
-        (os.path.join('share', package_name, 'config/robots'), glob(os.path.join('config/robots', '*.yaml'))),
-        (os.path.join('share', package_name, 'calibration_results'), glob(os.path.join('calibration_results', '*'))),
+
+        (os.path.join('share', package_name, 'launch'),
+         glob(os.path.join('launch', '*.launch.py'))),
+        (os.path.join('share', package_name, 'launch/robots'),
+         glob(os.path.join('launch/robots', '*.launch.py'))),
+        (os.path.join('share', package_name, 'launch/grippers'),
+         glob(os.path.join('launch/grippers', '*.launch.py'))),
+        (os.path.join('share', package_name, 'launch/sensors'),
+         glob(os.path.join('launch/sensors', '*.launch.py'))),
+        (os.path.join('share', package_name, 'config'),
+         glob(os.path.join('config', '*.yaml'))),
+        (os.path.join('share', package_name, 'config/robots'),
+         glob(os.path.join('config/robots', '*.yaml'))),
+        (os.path.join('share', package_name, 'calibration_results'),
+         glob(os.path.join('calibration_results', '*'))),
     ],
 
 
     install_requires=[
         'setuptools',
-        'pinocchio', # Keep if this is a pip-installable Python package
+        'pinocchio',  # Keep if this is a pip-installable Python package
         'numpy',
         'scipy',
         'pyyaml'
@@ -33,7 +39,8 @@ setup(
     zip_safe=True,
     maintainer='Your Name',
     maintainer_email='your_email@example.com',
-    description='Generic ROS2 package for controlling and manipulating robotic arms (Universal Robots, Franka).',
+    description='Generic ROS2 package for controlling and manipulating robotic arms '
+                '(Universal Robots, Franka).',
     license='Apache-2.0',
     tests_require=['pytest'],
     entry_points={
@@ -47,21 +54,7 @@ setup(
             f'install_hand_eye = {package_name}.install_hand_eye:main',
             f'capture_hand_eye = {package_name}.capture_hand_eye:main',
             f'evaluate_hand_eye = {package_name}.evaluate_hand_eye:main',
+            f'check_saved_deltas = {package_name}.check_saved_deltas:main',
         ],
     },
 )
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

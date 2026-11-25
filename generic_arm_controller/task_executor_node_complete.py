@@ -15,14 +15,13 @@ from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy, DurabilityPo
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.callback_groups import ReentrantCallbackGroup
 
-import tf2_ros
 from tf2_ros import TransformException
 from tf2_ros.buffer import Buffer
 from tf2_ros.transform_listener import TransformListener
 from tf2_ros import StaticTransformBroadcaster
 from geometry_msgs.msg import TransformStamped
-import tf2_geometry_msgs
 from tf2_geometry_msgs import do_transform_pose_stamped
+from generic_arm_controller import pose_store
 
 from generic_arm_interfaces.srv import GripperCommand as GripperSrv
 
@@ -180,12 +179,12 @@ class TaskExecutorNode(Node):
 
         # Stato interno
         self.ik_action_result_received = False
-        self.ik_action_success         = False
-        self.ik_action_reason          = ""
+        self.ik_action_success = False
+        self.ik_action_reason = ""
         self._last_task_failure_reason = ""
-        self.saved_poses               = []
-        self.ik_completion_timeout     = 20.0
-        self.gripper_timeout           = 10.0
+        self.saved_poses = []
+        self.ik_completion_timeout = 20.0
+        self.gripper_timeout = 10.0
 
         # Frame per cui vale la logica di aggancio - non ha senso per un
         # source_frame "assoluto" tipo base_frame, solo per frame rilevati dalla
@@ -207,10 +206,7 @@ class TaskExecutorNode(Node):
         # ------------------------------------------------------------------
         # CORREZIONE QUI: Puntiamo allo stesso identico file cumulativo
         # ------------------------------------------------------------------
-        home_dir = os.path.expanduser("~")
-        self.json_file_path_ws = os.path.join(
-            home_dir, 'ros2_ws/src/task_result/robot_poses_ws.json'
-        )
+        self.json_file_path_ws = pose_store.DEFAULT_PATH
         self.get_logger().info(f"Target Pose file per esecuzione: {self.json_file_path_ws}")
         self.get_logger().info(f"marker_lock_mode = '{self.marker_lock_mode}'")
 
@@ -223,7 +219,7 @@ class TaskExecutorNode(Node):
 
     def ik_result_callback(self, msg: Bool):
         self.ik_action_result_received = True
-        self.ik_action_success         = msg.data
+        self.ik_action_success = msg.data
         if self.ik_action_success:
             self.get_logger().info("IK completed successfully.")
         else:
@@ -258,8 +254,8 @@ class TaskExecutorNode(Node):
     # ------------------------------------------------------------------
 
     def _execute_gripper_task(self, task_data: dict) -> bool:
-        command      = task_data.get('command', '')
-        position     = float(task_data.get('position', 0.0))
+        command = task_data.get('command', '')
+        position = float(task_data.get('position', 0.0))
         gripper_type = task_data.get('gripper_type', 'auto')
         self._last_task_failure_reason = ""
 
@@ -270,8 +266,8 @@ class TaskExecutorNode(Node):
                 self.get_logger().error("GripperManager non raggiungibile. Salto.")
                 return False
 
-        req          = GripperSrv.Request()
-        req.command  = command
+        req = GripperSrv.Request()
+        req.command = command
         req.position = position
         if hasattr(req, 'gripper_type'):
             req.gripper_type = gripper_type
@@ -284,7 +280,7 @@ class TaskExecutorNode(Node):
         )
 
         future = self.gripper_client.call_async(req)
-        start  = time.time()
+        start = time.time()
         while not future.done():
             time.sleep(0.01)
             if time.time() - start > self.gripper_timeout:
@@ -322,10 +318,10 @@ class TaskExecutorNode(Node):
         dove la sequenza in corso crede che sia il marker. La trasformazione dei
         waypoint usa direttamente `ts`, non questo frame."""
         out = TransformStamped()
-        out.header.stamp    = self.get_clock().now().to_msg()
+        out.header.stamp = self.get_clock().now().to_msg()
         out.header.frame_id = self.target_frame_for_ik
-        out.child_frame_id  = self._locked_frame_name(frame)
-        out.transform       = ts.transform
+        out.child_frame_id = self._locked_frame_name(frame)
+        out.transform = ts.transform
         self._static_tf_broadcaster.sendTransform(out)
 
     def _resolve_marker_transform_once(self, source_frame: str, task_name: str):
@@ -414,11 +410,11 @@ class TaskExecutorNode(Node):
             return False
 
         try:
-            tr  = task_data['transform']['translation']
+            tr = task_data['transform']['translation']
             rot = task_data['transform']['rotation']
-            pose.pose.position.x    = tr['x']
-            pose.pose.position.y    = tr['y']
-            pose.pose.position.z    = tr['z']
+            pose.pose.position.x = tr['x']
+            pose.pose.position.y = tr['y']
+            pose.pose.position.z = tr['z']
             pose.pose.orientation.x = rot['x']
             pose.pose.orientation.y = rot['y']
             pose.pose.orientation.z = rot['z']
@@ -463,8 +459,8 @@ class TaskExecutorNode(Node):
 
         # Publish + attesa feedback
         self.ik_action_result_received = False
-        self.ik_action_success         = False
-        self.ik_action_reason          = ""
+        self.ik_action_success = False
+        self.ik_action_reason = ""
         self.target_pose_publisher.publish(pose)
         self.get_logger().info(
             f"Pose '{task_name}' pubblicata. Attendo IK..."
@@ -486,7 +482,8 @@ class TaskExecutorNode(Node):
 
         if not self.ik_action_success:
             self._last_task_failure_reason = self.ik_action_reason or "IK failed (unknown reason)"
-            self.get_logger().warn(f"IK fallito per '{task_name}': {self._last_task_failure_reason}")
+            self.get_logger().warn(
+                f"IK fallito per '{task_name}': {self._last_task_failure_reason}")
             return False
 
         self.get_logger().info(f"IK OK per '{task_name}'.")
@@ -620,7 +617,7 @@ class TaskExecutorNode(Node):
 
         for i, task_data in enumerate(self.saved_poses):
             task_type = task_data.get('task_type', 'move')
-            label     = task_data.get(
+            label = task_data.get(
                 'task_name', task_data.get('command', f'Task {i+1}')
             )
 
