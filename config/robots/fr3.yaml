@@ -24,6 +24,12 @@
     # already published by robot_state_publisher: don't publish it a second time from
     # calibration_results/hand_eye_transform_<robot>.yaml.
     hand_eye_tf_from_urdf: true
+
+    # Gazebo's clock (bridged on /clock by arm_gz_bringup/launch/fr3.launch.py): camera images
+    # carry sim time, and marker_lock rejects detections older than marker_max_tf_age_s
+    # against the node clock. Simulation only: fr3_real.yaml must not set it.
+    use_sim_time: true
+
     joint_names:
       - "fr3_joint1"
       - "fr3_joint2"
