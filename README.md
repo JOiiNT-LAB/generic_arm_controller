@@ -294,9 +294,10 @@ generic_arm_controller/
 │   ├── gripper_manager.py                         (executable: gripper_node)
 │   ├── task_saving_node_complete.py, task_executor_node_complete.py, marker_lock.py, teach_mode.py
 │   ├── pose_store.py                              (the saved sequence file, one path for all)
+│   ├── sequence.py                                (replay rules: order, stop at first failure, pauses)
 │   ├── capture_hand_eye.py, evaluate_hand_eye.py, install_hand_eye.py, hand_eye/
 │   └── validate_pipeline.py, check_saved_deltas.py
-└── test/  test_ik_safety.py, test_hand_eye.py, test_teach_mode.py, test_pose_store.py + ament linters
+└── test/  test_ik_safety.py, test_hand_eye.py, test_teach_mode.py, test_pose_store.py, test_sequence.py + ament linters
 ```
 
 ```bash
