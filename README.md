@@ -180,7 +180,10 @@ information. (Until October 2026 the marker mode was `2`; a request with `2` now
 that says so. Saved sequences are unaffected: they store the frame, not the mode number.)
 
 The sequence (poses and gripper actions, in order) is stored in
-`~/ros2_ws/src/task_result/robot_poses_ws.json`. The executor publishes each pose on
+`~/ros2_ws/src/task_result/robot_poses_ws.json`. The saving node reads it again at every save
+and clear (`pose_store.py`), so the file can be edited by hand while the stack runs. A file that
+isn't a JSON list is never overwritten: the save fails and says so. `/clear_saved_poses` backs
+up whatever is in the file to `backup_poses_<timestamp>.json` before emptying it. The executor publishes each pose on
 `/target_cartesian_pose` and waits up to 20 s for `/ik_action_result`; gripper steps call
 `/gripper/command` (10 s timeout). The sequence **stops at the first failed step**, because
 the following steps were taught assuming it succeeded (e.g. closing the gripper after a move

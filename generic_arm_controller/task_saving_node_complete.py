@@ -1,6 +1,5 @@
 import rclpy
 from rclpy.node import Node
-import json
 import os
 import datetime
 import shutil  # <-- Aggiunto per gestire i backup dei file completi
@@ -17,6 +16,7 @@ from generic_arm_interfaces.srv import GripperCommand as GripperSrv
 from std_srvs.srv import Trigger
 
 from generic_arm_controller.marker_lock import MarkerLocker
+from generic_arm_controller import pose_store
 
 
 class PoseSaverNode(Node):
@@ -70,8 +70,6 @@ class PoseSaverNode(Node):
         # processare i messaggi /tf proprio mentre li sta aspettando: il buffer
         # non si aggiorna e il timeout non puo' mai essere soddisfatto.
         self.tf_listener = TransformListener(self.tf_buffer, self, spin_thread=True)
-
-        self.all_poses          = []
 
         # Manteniamo la tua cartella e il tuo file originale (L'esecutore leggerà sempre questo!)
         workspace_dir    = os.path.expanduser('~/ros2_ws/src')
@@ -208,24 +206,26 @@ class PoseSaverNode(Node):
     # I/O file JSON (Invariati per garantire l'accumulo nello stesso file)
     # ------------------------------------------------------------------
 
+    # The file is read again at every save and clear (pose_store), so edits made while the
+    # node runs (by hand, or another process) are kept instead of overwritten.
+
     def _load_poses(self):
         try:
-            if os.path.exists(self.json_file_path):
-                with open(self.json_file_path, 'r') as f:
-                    self.all_poses = json.load(f)
-                self.get_logger().info(
-                    f"Loaded {len(self.all_poses)} entries. Nuovi salvataggi saranno accodati."
-                )
-        except Exception as e:
+            count = len(pose_store.load(self.json_file_path))
+            self.get_logger().info(
+                f"Loaded {count} entries. Nuovi salvataggi saranno accodati."
+            )
+        except (ValueError, OSError) as e:
             self.get_logger().error(f"Failed to load poses: {e}")
 
-    def _save_poses_to_file(self):
+    def _append_entry(self, entry):
+        """Append entry to the file on disk; return (count, None) or (None, error message)."""
         try:
-            os.makedirs(os.path.dirname(self.json_file_path), exist_ok=True)
-            with open(self.json_file_path, 'w') as f:
-                json.dump(self.all_poses, f, indent=4)
-        except Exception as e:
-            self.get_logger().error(f"Failed to save to file: {e}")
+            return pose_store.append(self.json_file_path, entry), None
+        except (ValueError, OSError) as e:
+            message = f"Not saved: {e}"
+            self.get_logger().error(message)
+            return None, message
 
     # ------------------------------------------------------------------
     # Callback: salva posa robot (Accumula nel file principale)
@@ -307,14 +307,17 @@ class PoseSaverNode(Node):
                 }
             }
 
-            self.all_poses.append(pose_data)
-            self._save_poses_to_file()
+            count, error = self._append_entry(pose_data)
+            if error:
+                response.success = False
+                response.message = error
+                return response
 
             response.success = True
             response.message = (
                 f"Saved '{request.task_name}' "
                 f"({pose_type}: {target_frame} w.r.t. {source_frame}). "
-                f"Total entries: {len(self.all_poses)}.{lock_note}"
+                f"Total entries: {count}.{lock_note}"
             )
             self.get_logger().info(response.message)
 
@@ -358,14 +361,17 @@ class PoseSaverNode(Node):
             "gripper_type": gripper_type
         }
 
-        self.all_poses.append(gripper_data)
-        self._save_poses_to_file()
+        count, error = self._append_entry(gripper_data)
+        if error:
+            response.success = False
+            response.message = error
+            return response
 
         pos_info = f"position={position:.3f}" if command == "move" else command
         response.success = True
         response.message = (
             f"Saved gripper action: {pos_info} ({gripper_type}). "
-            f"Total entries: {len(self.all_poses)}."
+            f"Total entries: {count}."
         )
         self.get_logger().info(response.message)
         return response
@@ -378,8 +384,16 @@ class PoseSaverNode(Node):
         self, request: Trigger.Request, response: Trigger.Response
     ):
         try:
-            # Se ci sono delle pose accumulate, prima di cancellarle facciamo un backup storico
-            if self.all_poses:
+            # Se ci sono delle pose accumulate, prima di cancellarle facciamo un backup storico.
+            # Decided from the file on disk, not from memory: anything in the file (even
+            # unreadable JSON) is backed up before it is emptied.
+            has_content = (os.path.exists(self.json_file_path)
+                           and os.path.getsize(self.json_file_path) > 0)
+            try:
+                has_content = has_content and bool(pose_store.load(self.json_file_path))
+            except ValueError:
+                pass  # unreadable: keep it in the backup
+            if has_content:
                 timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
                 backup_filename = f"backup_poses_{timestamp}.json"
                 backup_path = os.path.join(self.task_result_dir, backup_filename)
@@ -394,10 +408,8 @@ class PoseSaverNode(Node):
                 msg_backup = "Lista già vuota. "
 
             # Ora svuota l'array e azzera il file principale
-            self.all_poses = []
-            with open(self.json_file_path, 'w') as f:
-                json.dump([], f)
-                
+            pose_store.write(self.json_file_path, [])
+
             response.success = True
             response.message = f"{msg_backup}Tutte le voci correnti sono state azzerate in robot_poses_ws.json."
             self.get_logger().info(response.message)
