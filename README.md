@@ -295,6 +295,8 @@ generic_arm_controller/
 │   ├── task_saving_node_complete.py, task_executor_node_complete.py, marker_lock.py, teach_mode.py
 │   ├── pose_store.py                              (the saved sequence file, one path for all)
 │   ├── sequence.py                                (replay rules: order, stop at first failure, pauses)
+│   ├── marker_resolution.py, teach_mode_service.py (executor: marker lock in replay, /set_teach_mode)
+│   ├── service_call.py                            (call a service from a callback, with timeout)
 │   ├── capture_hand_eye.py, evaluate_hand_eye.py, install_hand_eye.py, hand_eye/
 │   └── validate_pipeline.py, check_saved_deltas.py
 └── test/  test_ik_safety.py, test_hand_eye.py, test_teach_mode.py, test_pose_store.py, test_sequence.py + ament linters

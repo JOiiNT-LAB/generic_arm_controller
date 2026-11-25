@@ -1,46 +1,41 @@
 """
 Replay the saved sequence on /execute_saved_tasks, and serve /set_teach_mode.
 
-The sequence is robot_poses_ws.json. The replay rules (order, stop at the first failure,
-pauses, result messages) live in sequence.py; this node performs each step: a 'move' is
-published on /target_cartesian_pose and waits for ik_trajectory_node's /ik_action_result,
-a 'gripper' step calls /gripper/command. Marker-relative poses go through marker_lock.py,
-teach mode through teach_mode.py. See the package README.
+The sequence is robot_poses_ws.json (pose_store.py). The replay rules (order, stop at the
+first failure, pauses, result messages) are in sequence.py; this node performs each step:
+a 'move' is published on /target_cartesian_pose and waits for ik_trajectory_node's
+/ik_action_result, a 'gripper' step calls /gripper/command. Marker-relative waypoints are
+resolved by marker_resolution.py, teach mode is teach_mode_service.py. See the README.
 """
 
 import os
 import threading
 import time
 
-from builtin_interfaces.msg import Duration
-from controller_manager_msgs.srv import ListControllers, SwitchController
 from generic_arm_controller import pose_store
 from generic_arm_controller import sequence
-from generic_arm_controller import teach_mode
-from generic_arm_controller.marker_lock import MarkerLocker
+from generic_arm_controller.marker_resolution import MarkerResolver, MODES
+from generic_arm_controller.service_call import call_with_timeout
+from generic_arm_controller.teach_mode_service import TeachModeService
 from generic_arm_interfaces.srv import GripperCommand as GripperSrv
 from geometry_msgs.msg import PoseStamped
-from geometry_msgs.msg import TransformStamped
 import rclpy
 from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy
 from std_msgs.msg import Bool, String
-from std_srvs.srv import SetBool, Trigger
+from std_srvs.srv import Trigger
 from std_srvs.srv._trigger import Trigger_Response
 from tf2_geometry_msgs import do_transform_pose_stamped
-from tf2_ros import StaticTransformBroadcaster
 from tf2_ros import TransformException
 from tf2_ros.buffer import Buffer
 from tf2_ros.transform_listener import TransformListener
 
-# Frames detected by the camera, which go through the marker lock. Indexed by name, so
-# several markers would each get their own lock.
+# Frames detected by the camera, resolved through the marker lock.
 TRACKABLE_FRAMES = ('aruco_marker',)
 IK_COMPLETION_TIMEOUT_S = 20.0
 GRIPPER_TIMEOUT_S = 10.0
-CONTROLLER_MANAGER_TIMEOUT_S = 5.0
 
 
 class TaskExecutorNode(Node):
@@ -48,121 +43,65 @@ class TaskExecutorNode(Node):
     def __init__(self):
         super().__init__('task_executor_node')
         self.get_logger().info('Task Executor Node Started.')
-        self._cb_group = ReentrantCallbackGroup()
+        cb_group = ReentrantCallbackGroup()
         # The services run on a reentrant group, but a sequence driving the robot must never
         # run twice at once (e.g. "execute tasks" repeated in the chat before the previous
         # run ends): a second request is refused, not queued.
         self._exec_lock = threading.Lock()
 
-        self._read_parameters()
-        self._create_ik_and_gripper_interfaces()
-        self._create_marker_lock()
-        self._create_teach_mode_interfaces()
-
-        self.json_file_path_ws = pose_store.DEFAULT_PATH
-        self.get_logger().info(f"Target Pose file per esecuzione: {self.json_file_path_ws}")
-        self.get_logger().info(f"marker_lock_mode = '{self.marker_lock_mode}'")
-
-    # ------------------------------------------------------------------
-    # Setup
-    # ------------------------------------------------------------------
-
-    def _read_parameters(self):
         # The frame ik_trajectory_node computes the IK in (the profile's base_frame).
-        self.declare_parameter('base_frame', 'base_link')
-        self.target_frame_for_ik = self.get_parameter('base_frame').value
-
-        # Marker lock, see README "Marker lock": 'once' (default) measures the marker once
-        # per sequence and reuses it, so the taught pre-grasp -> grasp geometry is replayed
-        # exactly even with a hand-eye calibration offset; 'live' re-reads it at every
-        # waypoint (old behaviour, kept for comparison).
-        self.declare_parameter('camera_optical_frame', 'camera_color_optical_frame')
-        self.declare_parameter('marker_min_reliable_distance_m', 0.20)
-        self.declare_parameter('marker_max_tf_age_s', 0.5)
-        self.declare_parameter('marker_lock_samples', 5)
-        self.declare_parameter('marker_lock_mode', 'once')
-        self.camera_optical_frame = self.get_parameter('camera_optical_frame').value
-        self.marker_min_reliable_distance_m = self.get_parameter(
-            'marker_min_reliable_distance_m').value
-        self.marker_max_tf_age_s = self.get_parameter('marker_max_tf_age_s').value
-        self.marker_lock_samples = self.get_parameter('marker_lock_samples').value
-        self.marker_lock_mode = str(self.get_parameter('marker_lock_mode').value).lower()
-        if self.marker_lock_mode not in ('once', 'live'):
-            self.get_logger().warn(
-                f"marker_lock_mode='{self.marker_lock_mode}' non valido: uso 'once'."
-            )
-            self.marker_lock_mode = 'once'
-
-        # Teach mode: an empty teach_mode_controller (default) means no teach mode.
-        self.declare_parameter('teach_mode_controller', '')
-        self.declare_parameter('controller_manager', '/controller_manager')
-        self.teach_mode_controller = str(self.get_parameter('teach_mode_controller').value)
-        self._controller_manager = str(
-            self.get_parameter('controller_manager').value).rstrip('/')
-
-    def _create_ik_and_gripper_interfaces(self):
+        self.target_frame_for_ik = self._param('base_frame', 'base_link')
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self, spin_thread=True)
-        self._static_tf_broadcaster = StaticTransformBroadcaster(self)
+
+        marker_lock_mode = str(self._param('marker_lock_mode', 'once')).lower()
+        if marker_lock_mode not in MODES:
+            self.get_logger().warn(
+                f"marker_lock_mode='{marker_lock_mode}' non valido: uso 'once'.")
+            marker_lock_mode = 'once'
+        self._markers = MarkerResolver(
+            self, self.tf_buffer, self.target_frame_for_ik, marker_lock_mode,
+            camera_optical_frame=self._param(
+                'camera_optical_frame', 'camera_color_optical_frame'),
+            min_distance_m=self._param('marker_min_reliable_distance_m', 0.20),
+            max_age_s=self._param('marker_max_tf_age_s', 0.5),
+            samples=self._param('marker_lock_samples', 5))
+
+        self._teach_mode = TeachModeService(
+            self,
+            controller=str(self._param('teach_mode_controller', '')),
+            controller_manager=str(self._param(
+                'controller_manager', '/controller_manager')).rstrip('/'),
+            callback_group=cb_group,
+            exec_lock=self._exec_lock)
 
         self.target_pose_publisher = self.create_publisher(
             PoseStamped, '/target_cartesian_pose', 10)
-        self.execute_task_service = self.create_service(
-            Trigger, 'execute_saved_tasks', self.execute_saved_tasks_callback,
-            callback_group=self._cb_group)
-
         ik_qos = QoSProfile(reliability=ReliabilityPolicy.RELIABLE,
                             history=HistoryPolicy.KEEP_LAST, depth=1,
                             durability=DurabilityPolicy.VOLATILE)
-        self.ik_result_subscription = self.create_subscription(
-            Bool, '/ik_action_result', self.ik_result_callback, ik_qos,
-            callback_group=self._cb_group)
-        self.ik_reason_subscription = self.create_subscription(
-            String, '/ik_action_result_reason', self.ik_reason_callback, ik_qos,
-            callback_group=self._cb_group)
+        self.create_subscription(Bool, '/ik_action_result', self.ik_result_callback,
+                                 ik_qos, callback_group=cb_group)
+        self.create_subscription(String, '/ik_action_result_reason', self.ik_reason_callback,
+                                 ik_qos, callback_group=cb_group)
         self.ik_action_result_received = False
         self.ik_action_success = False
         self.ik_action_reason = ""
 
         self.gripper_client = self.create_client(
-            GripperSrv, '/gripper/command', callback_group=self._cb_group)
+            GripperSrv, '/gripper/command', callback_group=cb_group)
+        self.create_service(Trigger, 'execute_saved_tasks', self.execute_saved_tasks_callback,
+                            callback_group=cb_group)
         # Why the last step failed, for the sequence result message.
         self._last_task_failure_reason = ""
 
-    def _create_marker_lock(self):
-        self._locker = MarkerLocker(
-            node=self,
-            tf_buffer=self.tf_buffer,
-            base_frame=self.target_frame_for_ik,
-            camera_optical_frame=self.camera_optical_frame,
-            min_distance_m=self.marker_min_reliable_distance_m,
-            max_age_s=self.marker_max_tf_age_s,
-            samples=self.marker_lock_samples,
-        )
-        self._live_cache = {}  # last good marker reading, 'live' mode only
+        self.json_file_path_ws = pose_store.DEFAULT_PATH
+        self.get_logger().info(f"Target Pose file per esecuzione: {self.json_file_path_ws}")
+        self.get_logger().info(f"marker_lock_mode = '{marker_lock_mode}'")
 
-    def _create_teach_mode_interfaces(self):
-        # /set_teach_mode deactivates teach_mode_controller so the arm can be guided by hand,
-        # and reactivates it; the state is latched on /teach_mode and execute_saved_tasks
-        # refuses to run while it is on. Pure logic in teach_mode.py.
-        self._list_controllers_client = self.create_client(
-            ListControllers, f'{self._controller_manager}/list_controllers',
-            callback_group=self._cb_group)
-        self._switch_controller_client = self.create_client(
-            SwitchController, f'{self._controller_manager}/switch_controller',
-            callback_group=self._cb_group)
-        self._teach_mode_active = False
-        self._teach_mode_pub = self.create_publisher(
-            Bool, 'teach_mode',
-            QoSProfile(reliability=ReliabilityPolicy.RELIABLE,
-                       history=HistoryPolicy.KEEP_LAST, depth=1,
-                       durability=DurabilityPolicy.TRANSIENT_LOCAL))
-        self.teach_mode_service = self.create_service(
-            SetBool, 'set_teach_mode', self.set_teach_mode_callback,
-            callback_group=self._cb_group)
-        # The initial state is published once the controller manager answers.
-        self._teach_mode_init_timer = self.create_timer(
-            2.0, self._init_teach_mode_state, callback_group=self._cb_group)
+    def _param(self, name, default):
+        self.declare_parameter(name, default)
+        return self.get_parameter(name).value
 
     # ------------------------------------------------------------------
     # Feedback IK
@@ -192,7 +131,7 @@ class TaskExecutorNode(Node):
             self.get_logger().warn(response.message)
             return response
         try:
-            if self._teach_mode_active:
+            if self._teach_mode.active:
                 response.success = False
                 response.message = ("Teach mode is ON: turn it off (/set_teach_mode false) "
                                     "before executing the sequence.")
@@ -206,8 +145,7 @@ class TaskExecutorNode(Node):
         self.get_logger().info("Avvio sequenza task.")
         # Every sequence starts without a lock: the object may have moved since the last
         # run, so the marker is observed again at least once.
-        self._locker.release()
-        self._live_cache = {}
+        self._markers.reset()
 
         entries = self._load_sequence()
         if entries is None:
@@ -268,16 +206,11 @@ class TaskExecutorNode(Node):
         pos_info = f"position={position:.3f}" if command == "move" else command
         self.get_logger().info(f"Gripper → {pos_info} ({gripper_type})")
 
-        future = self.gripper_client.call_async(req)
-        start = time.time()
-        while not future.done():
-            time.sleep(0.01)
-            if time.time() - start > GRIPPER_TIMEOUT_S:
-                self._last_task_failure_reason = f"Gripper timeout ({GRIPPER_TIMEOUT_S:.1f}s)"
-                self.get_logger().warn(f"Timeout gripper ({GRIPPER_TIMEOUT_S:.1f} s).")
-                return False
-
-        result = future.result()
+        done, result = call_with_timeout(self.gripper_client, req, GRIPPER_TIMEOUT_S)
+        if not done:
+            self._last_task_failure_reason = f"Gripper timeout ({GRIPPER_TIMEOUT_S:.1f}s)"
+            self.get_logger().warn(f"Timeout gripper ({GRIPPER_TIMEOUT_S:.1f} s).")
+            return False
         if result is None:
             self._last_task_failure_reason = "Empty gripper response"
             self.get_logger().error("Risposta gripper nulla.")
@@ -318,10 +251,7 @@ class TaskExecutorNode(Node):
     def _to_ik_frame(self, pose, source_frame, task_name):
         """Express pose in the IK frame; None (failure reason set) if it can't be."""
         if source_frame in TRACKABLE_FRAMES:
-            if self.marker_lock_mode == 'once':
-                transform = self._resolve_marker_transform_once(source_frame, task_name)
-            else:
-                transform = self._resolve_marker_transform_live(source_frame, task_name)
+            transform = self._markers.resolve(source_frame, task_name)
         else:
             try:
                 transform = self.tf_buffer.lookup_transform(
@@ -368,179 +298,6 @@ class TaskExecutorNode(Node):
             return False
         self.get_logger().info(f"IK OK per '{task_name}'.")
         return True
-
-    # ------------------------------------------------------------------
-    # Marker lock
-    # ------------------------------------------------------------------
-
-    def _locked_frame_name(self, frame: str) -> str:
-        # Distinct from the saving node's "_locked_teach": the two nodes lock the marker at
-        # different times, and the same child_frame_id with two values would conflict in TF.
-        return f"{frame}_locked_run"
-
-    def _publish_locked_frame(self, frame: str, ts: TransformStamped):
-        """
-        Publish the lock as a static TF, only for RViz.
-
-        It shows where the running sequence thinks the marker is: the waypoints are
-        transformed with `ts` directly.
-        """
-        out = TransformStamped()
-        out.header.stamp = self.get_clock().now().to_msg()
-        out.header.frame_id = self.target_frame_for_ik
-        out.child_frame_id = self._locked_frame_name(frame)
-        out.transform = ts.transform
-        self._static_tf_broadcaster.sendTransform(out)
-
-    def _resolve_marker_transform_once(self, source_frame: str, task_name: str):
-        """'once' mode: the lock, taken at the first call of the sequence, then reused."""
-        transform, msg, is_new = self._locker.get_or_acquire(source_frame)
-        if transform is None:
-            self.get_logger().error(
-                f"{msg}. Impossibile eseguire '{task_name}': il marker deve "
-                f"essere inquadrato almeno una volta, all'inizio della sequenza. "
-                f"Metti come primo waypoint una posa assoluta da cui il marker "
-                f"sia ben visibile. Salto."
-            )
-            return None
-        if is_new:
-            self.get_logger().info(msg)
-            self._publish_locked_frame(source_frame, transform)
-            self.get_logger().info(
-                f"Da qui in poi tutti i waypoint relativi a '{source_frame}' "
-                f"useranno questa stima: il marker puo' uscire "
-                f"dall'inquadratura senza conseguenze."
-            )
-        else:
-            self.get_logger().info(
-                f"'{task_name}': uso l'aggancio su '{source_frame}' gia' "
-                f"acquisito in questa sequenza (marker non riletto)."
-            )
-        return transform
-
-    def _resolve_marker_transform_live(self, source_frame: str, task_name: str):
-        """'live' mode: re-read at every waypoint, falling back on the last good reading."""
-        need_fallback = False
-        fallback_reason = ""
-        transform = None
-
-        try:
-            transform = self.tf_buffer.lookup_transform(
-                self.target_frame_for_ik, source_frame, rclpy.time.Time(),
-                timeout=rclpy.duration.Duration(seconds=1.0)
-            )
-            probe, reason = self._locker.sample_once(source_frame)
-            if probe is None:
-                need_fallback = True
-                fallback_reason = reason
-            else:
-                self._live_cache[source_frame] = transform
-        except TransformException as ex:
-            need_fallback = True
-            fallback_reason = (
-                f"TF error ({source_frame}->{self.target_frame_for_ik}): {ex}"
-            )
-
-        if need_fallback:
-            transform = self._live_cache.get(source_frame)
-            if transform is None:
-                self.get_logger().error(
-                    f"{fallback_reason} per '{task_name}'. Nessuna lettura "
-                    f"precedente disponibile per '{source_frame}'. Salto."
-                )
-                return None
-            self.get_logger().warn(
-                f"{fallback_reason} per '{task_name}'. Uso l'ultima lettura "
-                f"buona di '{source_frame}' di questa sequenza."
-            )
-        return transform
-
-    # ------------------------------------------------------------------
-    # Teach mode (hand-guiding)
-    # ------------------------------------------------------------------
-
-    def set_teach_mode_callback(self, request, response):
-        enable = bool(request.data)
-        # Holding the execution lock during the switch also keeps a sequence
-        # from starting halfway through it.
-        locked = self._exec_lock.acquire(blocking=False)
-        try:
-            error = teach_mode.check_request(self.teach_mode_controller, executing=not locked)
-            if error is None:
-                error = self._switch_teach_mode(enable)
-        finally:
-            if locked:
-                self._exec_lock.release()
-        response.success = error is None
-        response.message = error or teach_mode.describe(enable)
-        if error:
-            self.get_logger().warn(f"Teach mode request refused: {error}")
-        else:
-            self.get_logger().info(response.message)
-        return response
-
-    def _switch_teach_mode(self, enable):
-        """Switch the controller for teach mode `enable`; return an error or None."""
-        state, error = self._read_teach_controller_state()
-        if error:
-            return error
-        activate, deactivate, error = teach_mode.plan_switch(
-            enable, self.teach_mode_controller, state)
-        if error:
-            return error
-        if activate or deactivate:
-            req = SwitchController.Request()
-            req.activate_controllers = activate
-            req.deactivate_controllers = deactivate
-            req.strictness = SwitchController.Request.STRICT
-            req.activate_asap = True
-            req.timeout = Duration(sec=2)
-            res = self._call_service(
-                self._switch_controller_client, req, CONTROLLER_MANAGER_TIMEOUT_S)
-            if res is None:
-                return "The controller manager did not answer the switch request."
-            if not res.ok:
-                return (f"The controller manager refused to switch "
-                        f"'{self.teach_mode_controller}'.")
-        self._teach_mode_init_timer.cancel()
-        self._set_teach_mode_state(enable)
-        return None
-
-    def _read_teach_controller_state(self):
-        """Return (state, error) of teach_mode_controller; state None if not loaded."""
-        res = self._call_service(
-            self._list_controllers_client, ListControllers.Request(),
-            CONTROLLER_MANAGER_TIMEOUT_S)
-        if res is None:
-            return None, "The controller manager is not reachable (list_controllers)."
-        return teach_mode.controller_state(res.controller, self.teach_mode_controller), None
-
-    def _init_teach_mode_state(self):
-        """Publish the initial teach mode state; retried until it is known."""
-        if self.teach_mode_controller:
-            state, error = self._read_teach_controller_state()
-            if error or state is None:
-                return  # controller manager or controller not up yet
-            self._set_teach_mode_state(state == teach_mode.INACTIVE)
-        else:
-            self._set_teach_mode_state(False)
-        self._teach_mode_init_timer.cancel()
-
-    def _set_teach_mode_state(self, active):
-        self._teach_mode_active = active
-        self._teach_mode_pub.publish(Bool(data=active))
-
-    def _call_service(self, client, request, timeout):
-        """Call a service from a reentrant callback; None if unavailable or on timeout."""
-        if not client.service_is_ready():
-            return None
-        future = client.call_async(request)
-        start = time.time()
-        while not future.done():
-            time.sleep(0.01)
-            if time.time() - start > timeout:
-                return None
-        return future.result()
 
 
 def main(args=None):
